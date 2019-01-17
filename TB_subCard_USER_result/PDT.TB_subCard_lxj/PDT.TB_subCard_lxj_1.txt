@@ -1,0 +1,114 @@
+#!/usr/bin/perl
+# BTEQ script in Perl, 源数据加载任务 前处理:创建临时区表格
+# Script File  : ctbj_wid_fld0090.pl
+# Author: Zhu Maosheng NCR China 2004-03-24
+# Modify by ln , 2014-5-13 11:01:54
+use strict; # Declare using Perl strict syntax
+use DBI;
+#
+######################################################################
+# Variable Section
+my $AUTO_HOME = $ENV{"AUTO_HOME"};
+#my $TEMPDB = $ENV{"AUTO_SDATADB"};
+my $TEMPDB = "SDATA";
+#my $LOGDB = $ENV{"AUTO_LOGDB"};
+my $LOGDB = "SDATA";
+#my $SDDL = $ENV{"AUTO_SDDL"};
+my $SDDL = "SDDL";
+my $LOGON_STR;
+my $LOGON_FILE = "${AUTO_HOME}/etc/LOGON_ETL";
+my ($tablename,$interface,$tablecomment);
+my $errortb;
+
+my $controlfile="";
+
+######################################################################
+# BTEQ function
+sub run_bteq_command
+{
+   my $rc = open(BTEQ, "| bteq");
+   unless ($rc) {
+      print "Could not invoke BTEQ command\n";
+      return -1;
+   }
+   print BTEQ <<ENDOFINPUT;
+   ${LOGON_STR}
+   
+   DROP TABLE ${LOGDB}.${errortb}_E1;
+   DROP TABLE ${LOGDB}.${errortb}_E2;
+   
+   DROP TABLE ${TEMPDB}.$tablename;
+   
+   CREATE MULTISET TABLE ${TEMPDB}.$tablename AS $SDDL.$interface WITH NO DATA;
+   .IF ERRORCODE <> 0 THEN .QUIT 12;
+
+   .LOGOFF;
+   .QUIT 0;
+   
+ENDOFINPUT
+
+   ### End of BTEQ scripts ###
+   close(BTEQ);
+
+   my $RET_CODE = $? >> 8;
+
+   if ( $RET_CODE == 12 ) {
+      return 1;
+   }
+   else {
+      return 0;
+   }
+}
+
+######################################################################
+# main function
+sub main
+{
+	my $ret;
+	open(LOGONFILE_H, "${LOGON_FILE}");
+	$LOGON_STR = <LOGONFILE_H>;
+	close(LOGONFILE_H);
+	# Get the decoded logon string
+	$LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+
+	$ret = run_bteq_command();
+
+	return $ret;
+}
+
+######################################################################
+# program section
+# there is one parameter : control file name
+# control file format: SYS_TNNN_xxxxx_Myyyymmdd.dir
+if ( $#ARGV < 0 ) {
+   exit(1);
+}
+$controlfile = $ARGV[0];
+
+#one control file sample :dir.s_vc_m20160701
+print("controlfile is:$controlfile\n");
+
+$tablename = substr($controlfile,4);
+$tablename =~ tr [a-z][A-Z];
+print("tablename is $tablename...\n");
+
+$errortb = ${tablename};
+print("errortable is $errortb\n");
+
+my $tmpfile = substr($controlfile,4);
+
+#$tablename = substr($tmpfile,0,rindex($tmpfile,"_")).substr($controlfile,rindex($controlfile,"_"),7);
+#$tablename =~ tr [a-z][A-Z];
+#print("tablename is $tablename...\n");
+
+#$errortb = substr($tmpfile,0,rindex($tmpfile,"_"));
+#print("errortable is $errortb\n");
+
+$interface = substr($tmpfile,0,length($tmpfile)-8);
+$interface =~ tr[a-z][A-Z];
+print("tmpfile is $tmpfile...\n");
+print("interface is $interface...\n");
+
+open(STDERR, ">&STDOUT");
+my $ret = main();
+exit($ret);

@@ -1,0 +1,396 @@
+-------欢Go活跃用户月表
+CREATE  TABLE dm_test.tb_huan_go 
+     (
+       OP_TIME INTEGER 
+      ,ACC_NBR VARCHAR(40)
+     );
+
+comment on column dm_test.tb_huan_go.OP_TIME  is  '处理日期';
+comment on column dm_test.tb_huan_go.ACC_NBR  is  '手机号码';
+--20181213建表，该表数据为手工数据，无对应源表--
+
+
+---------------------移动公众客户评价系数—黏度系数---------------------------------------
+------表结构
+CREATE  TABLE dm_test.TB_PHONE_EVALUATE_SCORE_MON 
+(
+OP_TIME	INTEGER
+,USER_ID	NUMBER(16,0)
+,ACC_NBR	VARCHAR(40)
+,USER_TYPE	VARCHAR(20)
+,BILL_FLAG	VARCHAR(2)
+,ONLINE_SCORE	INTEGER
+,RE_FEE_SCORE	INTEGER
+,CONTRACT_SCORE	INTEGER
+,HUAN_GO_SCORE	INTEGER
+,YZF_SCORE	INTEGER
+,VICE_CARD_SCORE	INTEGER
+,TOT_SCORE	INTEGER
+      );
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.OP_TIME is '处理日期'                                    ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.USER_ID is '用户id'                                      ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.ACC_NBR is '手机号码'                                    ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.USER_TYPE is '用户类型'                                  ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.BILL_FLAG is '出账标识'                                  ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.ONLINE_SCORE is '在网时间得分'                           ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.RE_FEE_SCORE is '参与按月返费范流量政策得分'             ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.CONTRACT_SCORE is '合约得分'                             ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.HUAN_GO_SCORE is '网厅(欢GO)活跃—自然年度内活跃1次得分' ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.YZF_SCORE is '翼支付消费活跃—自然年度内消费活跃1次得分' ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.VICE_CARD_SCORE is '是否有副卡得分'                      ;
+comment on column dm_test.TB_PHONE_EVALUATE_SCORE_MON.TOT_SCORE is '总得分'                                    ;
+
+--------------------------移动公众客户价值评估------------------------------
+------移动公众客户价值评估基础表
+CREATE  TABLE $db_name.TB_MCUST_VALUE_BASE_MON 
+     (
+     OP_TIME	INTEGER
+,USER_ID	NUMBER(16,0)
+,ACC_NBR	VARCHAR(20)
+,USER_TYPE	VARCHAR(20)
+,BILL_FLAG	VARCHAR(2)
+,ARPU	NUMBER(12,2)
+,ARPU_INCREASE_PP	NUMBER(12,4)
+,MOU	NUMBER(12,2)
+,MOU_INCREASE_PP	NUMBER(12,4)
+,DOU	NUMBER(12,2)
+,DOU_INCREASE_PP	NUMBER(12,4)
+,BUXIANLIANG_FLAG	NUMBER(4,0)
+,TERMN_PRICE	NUMBER(12,2)
+,OTC_TIME	NUMBER(4,0)
+,CHENMO_FLAG	NUMBER(4,0)
+,G4_FLAG	NUMBER(4,0)
+,QIANFEI_FLAG	NUMBER(4,0)
+,DOU_STOP_FLAG	NUMBER(4,0)
+,DOU_STOP_NUM	NUMBER(6,0)
+,USER_ONLINE_DURA	NUMBER(4,0)
+,ZHUFUKA_FLAG	NUMBER(4,0)
+,FLOW_PACKET_NUM	NUMBER(6,0)
+,YZF_ACT_FLAG	NUMBER(4,0)
+,YZF_CSM_FLAG	NUMBER(4,0)
+,TYSX_ACT_FLAG	NUMBER(4,0)
+,HUANGO_ACT_FLAG	NUMBER(4,0)
+,MARKET_NUM	NUMBER(12,0)
+,JWQ_NUM	NUMBER(12,0)
+,JWQ_TELE_PP	NUMBER(6,2)
+,MESS_FLAG	NUMBER(4,0)
+,APP_NUMS	NUMBER(12,0)
+,APP_VISIT_10_NUMS	NUMBER(12,0)
+,APP_5M_NUMS	NUMBER(12,0)
+,APP_ACT_5D_NUMS	NUMBER(12,0)
+,YJDK_FLAG	NUMBER(4,0)
+      );
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.OP_TIME  is  '处理日期'                             ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.USER_ID  is  '用户id'                                  ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.ACC_NBR  is  '手机号码'                                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.USER_TYPE  is  '用户类型'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.BILL_FLAG  is  '出账标识'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.ARPU  is  '当月ARPU值'                                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.ARPU_INCREASE_PP  is  '当月ARPU 比上年平均ARPU增幅'    ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.MOU  is  '当月语音使用时长'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.MOU_INCREASE_PP  is  '当月MOU比上年平均MOU增幅'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.DOU  is  '当月流量使用量'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.DOU_INCREASE_PP  is  '当月DOU比上年平均DOU增幅'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.BUXIANLIANG_FLAG is '是否订购不限量套餐'               ;  
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.TERMN_PRICE  is  '终端价格'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.OTC_TIME  is  '终端机龄'                               ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.CHENMO_FLAG   is  '是否沉默用户'                       ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.G4_FLAG  is  '是否4G用户'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.QIANFEI_FLAG  is  '是否欠费'                           ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.DOU_STOP_FLAG  is  '当月是否双停'                      ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.DOU_STOP_NUM  is  '自然年度内双停次数'                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.USER_ONLINE_DURA   is  '在网时间'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.ZHUFUKA_FLAG  is  '是否有副卡'                         ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.FLOW_PACKET_NUM  is  '订购流量包数量'                  ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.YZF_ACT_FLAG  is  '翼支付活跃'                         ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.YZF_CSM_FLAG  is  '翼支付是否消费'                     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.TYSX_ACT_FLAG  is  '天翼视讯活跃'                      ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.HUANGO_ACT_FLAG  is  '欢GO活跃'                        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.MARKET_NUM  is  '营销活动参与数量'                     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.JWQ_NUM  is  '交往圈个数'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.JWQ_TELE_PP  is  '交往圈中电信号码占比'                ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.MESS_FLAG  is  '是否收到过银行/支付宝/微信行短'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.APP_NUMS  is  'APP使用个数'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.APP_VISIT_10_NUMS  is  '访问次数大于10次的APP个数'     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.APP_5M_NUMS    is  '使用流量大于5M的APP个数'           ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.APP_ACT_5D_NUMS  is  '活跃天数大于5的APP个数'          ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON.YJDK_FLAG  is  '是否机卡异常'                          ;  
+
+--修改时间：20181217--
+------移动公众客户价值评估基础表  -----预付费
+CREATE  TABLE $db_name.TB_MCUST_VALUE_BASE_MON_BF
+     (
+           OP_TIME	INTEGER
+,USER_ID	NUMBER(16,0)
+,ACC_NBR	VARCHAR(20)
+,USER_TYPE	VARCHAR(20)
+,BILL_FLAG	VARCHAR(2)
+,ARPU	NUMBER(12,2)
+,ARPU_INCREASE_PP	NUMBER(12,4)
+,MOU	NUMBER(12,2)
+,MOU_INCREASE_PP	NUMBER(12,4)
+,DOU	NUMBER(12,2)
+,DOU_INCREASE_PP	NUMBER(12,4)
+,BUXIANLIANG_FLAG	NUMBER(4,0)
+,TERMN_PRICE	NUMBER(12,2)
+,OTC_TIME	NUMBER(4,0)
+,CHENMO_FLAG	NUMBER(4,0)
+,G4_FLAG	NUMBER(4,0)
+,QIANFEI_FLAG	NUMBER(4,0)
+,DOU_STOP_FLAG	NUMBER(4,0)
+,DOU_STOP_NUM	NUMBER(6,0)
+,USER_ONLINE_DURA	NUMBER(4,0)
+,ZHUFUKA_FLAG	NUMBER(4,0)
+,FLOW_PACKET_NUM	NUMBER(6,0)
+,YZF_ACT_FLAG	NUMBER(4,0)
+,YZF_CSM_FLAG	NUMBER(4,0)
+,TYSX_ACT_FLAG	NUMBER(4,0)
+,HUANGO_ACT_FLAG	NUMBER(4,0)
+,MARKET_NUM	NUMBER(12,0)
+,JWQ_NUM	NUMBER(12,0)
+,JWQ_TELE_PP	NUMBER(6,2)
+,MESS_FLAG	NUMBER(4,0)
+,APP_NUMS	NUMBER(12,0)
+,APP_VISIT_10_NUMS	NUMBER(12,0)
+,APP_5M_NUMS	NUMBER(12,0)
+,APP_ACT_5D_NUMS	NUMBER(12,0)
+,YJDK_FLAG	NUMBER(4,0)
+      );
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.OP_TIME  is  '处理日期'                             ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.USER_ID  is  '用户id'                                  ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.ACC_NBR  is  '手机号码'                                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.USER_TYPE  is  '用户类型'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.BILL_FLAG  is  '出账标识'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.ARPU  is  '当月ARPU值'                                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.ARPU_INCREASE_PP  is  '当月ARPU 比上年平均ARPU增幅'    ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.MOU  is  '当月语音使用时长'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.MOU_INCREASE_PP  is  '当月MOU比上年平均MOU增幅'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.DOU  is  '当月流量使用量'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.DOU_INCREASE_PP  is  '当月DOU比上年平均DOU增幅'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.BUXIANLIANG_FLAG is '是否订购不限量套餐'               ;  
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.TERMN_PRICE  is  '终端价格'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.OTC_TIME  is  '终端机龄'                               ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.CHENMO_FLAG   is  '是否沉默用户'                       ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.G4_FLAG  is  '是否4G用户'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.QIANFEI_FLAG  is  '是否欠费'                           ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.DOU_STOP_FLAG  is  '当月是否双停'                      ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.DOU_STOP_NUM  is  '自然年度内双停次数'                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.USER_ONLINE_DURA   is  '在网时间'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.ZHUFUKA_FLAG  is  '是否有副卡'                         ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.FLOW_PACKET_NUM  is  '订购流量包数量'                  ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.YZF_ACT_FLAG  is  '翼支付活跃'                         ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.YZF_CSM_FLAG  is  '翼支付是否消费'                     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.TYSX_ACT_FLAG  is  '天翼视讯活跃'                      ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.HUANGO_ACT_FLAG  is  '欢GO活跃'                        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.MARKET_NUM  is  '营销活动参与数量'                     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.JWQ_NUM  is  '交往圈个数'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.JWQ_TELE_PP  is  '交往圈中电信号码占比'                ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.MESS_FLAG  is  '是否收到过银行/支付宝/微信行短'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.APP_NUMS  is  'APP使用个数'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.APP_VISIT_10_NUMS  is  '访问次数大于10次的APP个数'     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.APP_5M_NUMS    is  '使用流量大于5M的APP个数'           ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.APP_ACT_5D_NUMS  is  '活跃天数大于5的APP个数'          ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_BF.YJDK_FLAG  is  '是否机卡异常'                          ;  
+--修改时间20181217--
+
+
+------移动公众客户价值评估基础表  -----后付费
+CREATE  TABLE $db_name.TB_MCUST_VALUE_BASE_MON_AF 
+     (
+            OP_TIME	INTEGER
+,USER_ID	NUMBER(16,0)
+,ACC_NBR	VARCHAR(20)
+,USER_TYPE	VARCHAR(20)
+,BILL_FLAG	VARCHAR(2)
+,ARPU	NUMBER(12,2)
+,ARPU_INCREASE_PP	NUMBER(12,4)
+,MOU	NUMBER(12,2)
+,MOU_INCREASE_PP	NUMBER(12,4)
+,DOU	NUMBER(12,2)
+,DOU_INCREASE_PP	NUMBER(12,4)
+,BUXIANLIANG_FLAG	NUMBER(4,0)
+,TERMN_PRICE	NUMBER(12,2)
+,OTC_TIME	NUMBER(4,0)
+,CHENMO_FLAG	NUMBER(4,0)
+,G4_FLAG	NUMBER(4,0)
+,QIANFEI_FLAG	NUMBER(4,0)
+,DOU_STOP_FLAG	NUMBER(4,0)
+,DOU_STOP_NUM	NUMBER(6,0)
+,USER_ONLINE_DURA	NUMBER(4,0)
+,ZHUFUKA_FLAG	NUMBER(4,0)
+,FLOW_PACKET_NUM	NUMBER(6,0)
+,YZF_ACT_FLAG	NUMBER(4,0)
+,YZF_CSM_FLAG	NUMBER(4,0)
+,TYSX_ACT_FLAG	NUMBER(4,0)
+,HUANGO_ACT_FLAG	NUMBER(4,0)
+,MARKET_NUM	NUMBER(12,0)
+,JWQ_NUM	NUMBER(12,0)
+,JWQ_TELE_PP	NUMBER(6,2)
+,MESS_FLAG	NUMBER(4,0)
+,APP_NUMS	NUMBER(12,0)
+,APP_VISIT_10_NUMS	NUMBER(12,0)
+,APP_5M_NUMS	NUMBER(12,0)
+,APP_ACT_5D_NUMS	NUMBER(12,0)
+,YJDK_FLAG	NUMBER(4,0)
+      );
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.OP_TIME  is  '处理日期'                             ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.USER_ID  is  '用户id'                                  ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.ACC_NBR  is  '手机号码'                                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.USER_TYPE  is  '用户类型'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.BILL_FLAG  is  '出账标识'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.ARPU  is  '当月ARPU值'                                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.ARPU_INCREASE_PP  is  '当月ARPU 比上年平均ARPU增幅'    ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.MOU  is  '当月语音使用时长'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.MOU_INCREASE_PP  is  '当月MOU比上年平均MOU增幅'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.DOU  is  '当月流量使用量'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.DOU_INCREASE_PP  is  '当月DOU比上年平均DOU增幅'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.BUXIANLIANG_FLAG is '是否订购不限量套餐'               ;  
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.TERMN_PRICE  is  '终端价格'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.OTC_TIME  is  '终端机龄'                               ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.CHENMO_FLAG   is  '是否沉默用户'                       ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.G4_FLAG  is  '是否4G用户'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.QIANFEI_FLAG  is  '是否欠费'                           ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.DOU_STOP_FLAG  is  '当月是否双停'                      ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.DOU_STOP_NUM  is  '自然年度内双停次数'                 ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.USER_ONLINE_DURA   is  '在网时间'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.ZHUFUKA_FLAG  is  '是否有副卡'                         ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.FLOW_PACKET_NUM  is  '订购流量包数量'                  ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.YZF_ACT_FLAG  is  '翼支付活跃'                         ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.YZF_CSM_FLAG  is  '翼支付是否消费'                     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.TYSX_ACT_FLAG  is  '天翼视讯活跃'                      ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.HUANGO_ACT_FLAG  is  '欢GO活跃'                        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.MARKET_NUM  is  '营销活动参与数量'                     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.JWQ_NUM  is  '交往圈个数'                              ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.JWQ_TELE_PP  is  '交往圈中电信号码占比'                ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.MESS_FLAG  is  '是否收到过银行/支付宝/微信行短'        ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.APP_NUMS  is  'APP使用个数'                            ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.APP_VISIT_10_NUMS  is  '访问次数大于10次的APP个数'     ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.APP_5M_NUMS    is  '使用流量大于5M的APP个数'           ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.APP_ACT_5D_NUMS  is  '活跃天数大于5的APP个数'          ;
+comment on column $db_name.TB_MCUST_VALUE_BASE_MON_AF.YJDK_FLAG  is  '是否机卡异常'                          ;  
+
+
+----1、处理极值
+----1.1、预付费用户 
+DROP TABLE	$db_name.TB_MCUST_VALUE_CAL_MON_BF;
+CREATE  TABLE $db_name.TB_MCUST_VALUE_CAL_MON_BF 
+(
+ op_time 	INTEGER                                                       
+,user_id 	NUMBER(16,0) 
+,acc_nbr 	VARCHAR(20)  
+,USER_TYPE 	VARCHAR(20)  
+,ARPU 	NUMBER(12,2) 
+,ARPU_INCREASE_PP 	NUMBER(12,4) 
+,DOU 	NUMBER(12,2) 
+,DOU_INCREASE_PP 	NUMBER(12,4) 
+,TERMN_PRICE 	NUMBER(12,2) 
+,OTC_TIME 	NUMBER(4,0) 
+,CHENMO_FLAG  	NUMBER(4,0) 
+,G4_FLAG 	NUMBER(4,0) 
+,BILL_FLAG 	NUMBER(4,0) 
+,USER_ONLINE_DURA  	NUMBER(4,0) 
+,ZHUFUKA_FLAG 	NUMBER(4,0) 
+,FLOW_PACKET_NUM 	NUMBER(6,0) 
+,YZF_CSM_FLAG 	NUMBER(4,0) 
+,TYSX_ACT_FLAG 	NUMBER(4,0) 
+,HUANGO_ACT_FLAG 	NUMBER(4,0) 
+,MARKET_NUM 	NUMBER(12,0) 
+,JWQ_NUM 	NUMBER(12,0) 
+,JWQ_TELE_PP 	NUMBER(6,2) 
+,MESS_FLAG 	NUMBER(4,0) 
+,APP_NUMS 	NUMBER(12,0)                                                                                   
+,APP_VISIT_10_NUMS 	NUMBER(12,0) 
+,APP_5M_NUMS   	NUMBER(12,0) 
+,APP_ACT_5D_NUMS 	NUMBER(12,0) 
+,YJDK_FLAG 	NUMBER(4,0) 
+);
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.op_time  is  '处理日期'                               ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.user_id  is  '用户id'                                   ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.acc_nbr  is  '手机号码'                                  ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.USER_TYPE  is  '用户类型'                               ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.ARPU  is  '总账收入'                                    ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.ARPU_INCREASE_PP  is  '总账收入增幅'                    ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.DOU  is  '流量'                                         ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.DOU_INCREASE_PP  is  '流量增幅'                         ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.TERMN_PRICE  is  '终端价格'                             ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.OTC_TIME  is  '终端机龄'                                ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.CHENMO_FLAG   is  '是否沉默'                            ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.G4_FLAG  is  '是否4G用户'                               ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.BILL_FLAG  is  '是否出账'                               ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.USER_ONLINE_DURA   is  '在网时长'                               ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.ZHUFUKA_FLAG  is  '是否有副卡'                          ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.FLOW_PACKET_NUM  is  '订购流量包数量'                   ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.YZF_CSM_FLAG  is  '翼支付是否消费'                      ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.TYSX_ACT_FLAG  is  '天翼视讯活跃'                       ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.HUANGO_ACT_FLAG  is  '欢GO活跃'                         ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.MARKET_NUM  is  '营销活动参与数量'                      ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.JWQ_NUM  is  '交往圈个数'                               ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.JWQ_TELE_PP  is  '交往圈中电信号码占比'                 ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.MESS_FLAG  is  '是否收到过银行/支付宝/微信行短'         ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.APP_NUMS  is  'APP使用个数'                             ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.APP_VISIT_10_NUMS  is  '访问次数大于10次的APP个数'      ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.APP_5M_NUMS    is  '使用流量大于5M的APP个数'            ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.APP_ACT_5D_NUMS  is  '活跃天数大于5的APP个数'           ;
+comment on column $db_name.TB_MCUST_VALUE_CAL_MON_BF.YJDK_FLAG  is  '是否机卡异常'                           ;
+
+DROP TABLE $db_name.TB_FCUST_VALUE_RES_MON;
+CREATE  TABLE $db_name.TB_FCUST_VALUE_RES_MON
+(
+op_time	INTEGER
+,user_id	number(16,0)
+,acc_nbr	VARCHAR(40)
+,BILL_FLAG	VARCHAR(2)
+,SELL_DEPT_NAME	VARCHAR(20)
+,TOT_INCOME	number(10,6)
+,USE_TIME	number(10,6)
+,FUSE_NUM	number(10,6)
+,IPTV_FLAG	number(10,6)
+,IPTV_NUM	number(10,6)
+,KD_RATE	number(10,6)
+,USER_ONLINE_DURA	number(10,6)
+,HEYUE_DUR	number(10,6)
+,FAMILY_PRO_NUM	number(10,6)
+,X_INCOME	number(10,6)
+,X_BUS_VALUE	number(10,6)
+,Y_USER_FEATURE	number(10,6)
+,Y_COM_TOUCH	number(10,6)
+,Y_INTEL_FAMILY	number(10,6)
+,X_VALUE	number(10,6)
+,Y_VALUE	number(10,6)
+,VALUE_INDEX	number(10,6)
+);
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.op_time is '处理日期'                     ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.user_id is '用户id'                       ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.acc_nbr is '用户号码'                     ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.BILL_FLAG is '出账标识'                   ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.SELL_DEPT_NAME is '销售部门'              ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.TOT_INCOME is '月总收入(元)'              ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.USE_TIME is '家宽产品使用时长(小时)'      ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.FUSE_NUM is '融合的用户数量'              ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.IPTV_FLAG is 'IPTV是否订购'               ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.IPTV_NUM is 'IPTV点播次数'                ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.KD_RATE is '家宽产品速率'                 ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.USER_ONLINE_DURA is '在网时长'            ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.HEYUE_DUR is '合约时长'                   ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.FAMILY_PRO_NUM is '智慧家庭产品使用个数'  ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.X_INCOME is '显性-直接收入指数'           ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.X_BUS_VALUE is '显性-业务价值指数'        ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.Y_USER_FEATURE is '隐性-用户属性指数'     ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.Y_COM_TOUCH is '隐性-企业接触指数'        ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.Y_INTEL_FAMILY is '隐性-智慧家庭指数'     ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.X_VALUE is '显性价值指数'                 ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.Y_VALUE is '隐性价值指数'                 ;
+comment on column $db_name.TB_FCUST_VALUE_RES_MON.VALUE_INDEX is '价值指数'                 ;  
+
+
+
+CREATE TABLE dm_test.TD_ORG_CHANNEL201703
+     (
+      ORG_CHANNEL_ID VARCHAR2(20) ,
+      ORG_CHANNEL_NM VARCHAR2(20) ,
+      ORG_CHANNEL_NM2 VARCHAR2(20) ,
+      ORG_CHANNEL_NM1 VARCHAR2(20) ,
+      ORG_ORDER INTEGER,
+      REMARK VARCHAR2(100) 
+      )
+;

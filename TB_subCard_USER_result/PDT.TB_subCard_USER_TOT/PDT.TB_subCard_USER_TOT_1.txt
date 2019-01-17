@@ -1,0 +1,1714 @@
+﻿#!/usr/bin/perl
+######################################################################
+# BTEQ script in Perl, generate by Script Wizard
+# Date Time        : 2017-2-18 16:59:49
+# Target Table     : pdata.new4Guser
+# Script File      : tb_4GNEW_info_m0500.pl
+# Interface Name   : 每日新增4G用户转化明细表
+# Refresh Frequency: DAILY
+# Refresh Mode     : 增量
+# Authors          :
+# Version Info     : 1.0
+# Source Table     : SDATA.TB_360_SUBS_INFO_D
+######################################################################
+use strict; # Declare using Perl strict syntax
+use DBI; #Declare using Perl DBI syntax
+######################################################################
+# Variable Section
+
+my $AUTO_HOME = "$ENV{AUTO_HOME}";
+my $AUTO_DSN = "$ENV{AUTO_DSN}";
+
+my $LOGON_STR;
+my $LOGON_FILE = "${AUTO_HOME}/etc/LOGON_ETL";
+my $CONTROL_FILE = "";
+my $db_name = "$ENV{db_name}";
+
+my $dbh="";
+my $PROV="";
+my $TX_DATE = "";      #交易日 格式YYYYMMDD
+
+###当前日期是否是星期日 1:是
+my $ISSUNDAY_FLAG = "";
+my $USER;
+my $PASSWD;
+
+###当年天数   当月天数
+my $YEARDAYNUM="";
+my $MONDAYNUM="";
+
+my $TX_DATE = "";      #交易日 格式YYYYMMDD
+
+##当天，本月业务日期,本月第1天,本月最后1天  格式'YYYYMMDD'
+my $DATE_TODAY="";
+my $MONTH_TODAY="";
+my $MONTH_FIRSTDAY="";
+my $MONTH_LASTDAY="";
+
+###本月标示  格式'YYYYMM'
+my $TX_MONTH = "";
+
+
+###上月第1天,上月最后1天,上月当天 格式'YYYYMMDD'
+my $LAST1MONTH_FIRSTDAY="";
+my $LAST1MONTH_LASTDAY="";
+my $LAST1MONTH_TODAY="";
+
+#本年第一天 格式'YYYYMMDD'
+my $THIS_YEAR_FIRSTDAY="";
+
+#上年第一天,上年当天,上年最后一天 格式'YYYYMMDD'
+my $LASTYEAR_TODAY="";
+my $LASTYEAR_FIRSTDAY="";
+my $LASTYEAR_LASTDAY="";
+
+###下月第1天,下月最后1天,下月当天 格式'YYYYMMDD'
+my $NEXT1MONTH_FIRSTDAY="";
+my $NEXT1MONTH_LASTTDAY="";
+my $NEXT1MONTH_TODAY="";
+
+
+###下1月到下3月 格式'YYYYMM'
+my $NEXT1MONTH_CHAR="";
+my $NEXT2MONTH_CHAR="";
+my $NEXT3MONTH_CHAR="";
+
+###上1月到上5月 格式'YYYYMM'
+my $LAST1MONTH_CHAR="";
+my $LAST2MONTH_CHAR="";
+my $LAST3MONTH_CHAR="";
+my $LAST4MONTH_CHAR="";
+my $LAST5MONTH_CHAR="";
+
+###本年1月到上12月 格式'YYYYMM'
+my $THIS_YEAR_MON1 = "";
+
+
+###上年1月到上12月 格式'YYYYMM'
+my $LASTYEAR_1MONTH="";
+my $LASTYEAR_12MONTH="";
+
+###上1天到上6天 格式'YYYYMMDD'
+my $DATE_TODAY_L1="";
+my $DATE_TODAY_L2="";
+my $DATE_TODAY_L3="";
+my $DATE_TODAY_L4="";
+my $DATE_TODAY_L5="";
+my $DATE_TODAY_L6="";
+
+
+###当前日期是否是星期日 1:是
+my $ISSUNDAY_FLAG = "";
+
+######################################################################
+# BTEQ function
+sub run_bteq_command
+{
+	 open(LOGONFILE_H, "${LOGON_FILE}");
+   $LOGON_STR = <LOGONFILE_H>;
+   close(LOGONFILE_H);
+   $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+   my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+   chop($userpw);
+   my ($USER, $PASSWD) = split(',' , $userpw);
+
+	 my $connect_string = "$USER\/$PASSWD\@$AUTO_DSN";	 
+ 
+	 my $sqlplus_settings = 'set linesize 300;';
+	 my $result = qx { sqlplus $connect_string<<eof
+	 $sqlplus_settings
+	 -------SQL 开始-----------------------------------
+alter session force parallel dml parallel 8;	 
+--1. 建表保存目标用户  目标用户(17年12月的存量用户！！！)
+drop table ${db_name}.xyx_mubiao_users_all_201802;
+create table ${db_name}.xyx_mubiao_users_all_201802 compress as (
+select 
+distinct 
+op_time
+,USER_ID
+,t1.innet_flag
+,t1.main_pp_id
+from EDW_SHARE.S_TD_USER_360_201808 t1
+where t1.op_time='201808'						--！！注意12月的存量用户！！
+and T1.MAIN_PROD_ID2 IN (10,11)
+and t1.innet_flag = 1
+)
+;
+
+
+
+--2. 目标用户：部分特征宽表          
+drop table ${db_name}.xyx_basic_zfk_users_201802;
+create table ${db_name}.xyx_basic_zfk_users_201802 compress as (
+select 
+	 t1.op_time  
+	,t1.USER_ID
+	,t1.ACC_NBR  --新增  
+	,t1.main_pp_id as main_pp_id
+	,t2.main_pp_id as main_pp_id_new 
+	,t1.P_AGE
+	,t1.P_GENDER_ID
+	,t1.LOCAL_FLAG
+	,case when t3.BA_SF_ROAM_DAYS is null then 0 else t3.BA_SF_ROAM_DAYS end  chunjie_roam_days--春节漫游天数
+	,t1.USER_ONLINE_DURA                							
+	,t1.MAIN_PROD_ID2              							 --用户类（预后付费标识 10 / 11）
+	,t1.USER_STS_ID              							
+	,t1.RONGHE_FLAG             							 --融合标识(-1 / 1 / 2 / 3 / 4 / 5 / 6)
+	,t1.cert_type_name 																															--证件类型
+	,case when t1.CUST_NAMELEN>5 then 1  else 0   end if_jt_user                     --是否集团用户
+	,case when t1.LEASE_PP_EXP_DATE is null then 999
+				when (extract(YEAR FROM t1.LEASE_PP_EXP_DATE)*12 + extract(month FROM t1.LEASE_PP_EXP_DATE) - (substr(to_char(t1.op_time),1,4)*12+substr
+	           																																(to_char(t1.op_time),5,2)))<0 then 0  
+				else (extract(YEAR FROM t1.LEASE_PP_EXP_DATE)*12 + extract(month FROM t1.LEASE_PP_EXP_DATE) - (substr(to_char(t1.op_time),1,4)*12+substr
+	           																																(to_char(t1.op_time),5,2)))           
+				end month_contract_over																								--合约到期时长（月）'24216=2018*12'   
+	,case WHEN (T2.NAME LIKE '%不限量%' OR (T2.NAME LIKE '%畅享%' AND T2.NAME NOT LIKE '%抖音畅享%'))	THEN '不限量'
+	      when  t2.name like '%乐享家%' then '乐享家'
+	      when  t2.name like '%乐享4G%' then '乐享4G'
+	      when  t2.name like '%磅礴卡%' then '磅礴卡'
+	else  '其他' end tc_type
+	,t4.market_price
+  ,t4.standby_type
+	,t1.bill_flag                      --是否出账
+	,t1.BILL_FEE/100   CONSUME_AMT                                               --出账金额
+  ,case when t1.G4_YICHANG_ESN_FLAG='1' then '1' else '0' end    YJDK_FLAG        --一机多卡   
+  ,case when t1.G4_YICHANG_SERV_FLAG='1' then '1' else '0' end   YKDJ_FLAG        --一卡多机   
+  ,t1.USER_CREDIT_VALUE       --信用度
+  ,(t1.AGG_OWE_FEE*1.00)/100   AGG_OWE_FEE   --累计欠费金额
+  ,t1.CHARGE_TIMES      --缴费次数
+  ,(t1.CALL_DURATION*1.00)/60     CALL_DURATION       --通话时长
+  ,(t1.CALLING_DURATION*1.00)/60   CALLING_DURATION  --主叫通话时长
+  ,(t1.CALLING_DURATION*1.0000)/NULLIF(t1.CALL_DURATION,0) as calling_port  --主叫时长占比
+  ,(t1.ROAM_DURATION*1.0000)/NULLIF(t1.CALL_DURATION,0)   as ROAM_port --漫游通话时长占比
+  ,(t1.CALL_TOLL_DURATION*1.0000)/NULLIF(t1.CALL_DURATION,0)  as long_port --长途通话时长占比
+  ,(COALESCE(t1.G4_FLUX,0)+COALESCE(t1.G3_FLUX,0)+COALESCE(t1.G2_FLUX,0))/1024 flows   --总流量
+  --,t6.flow/NULLIF(flows) as roam_rate
+  ,t1.FOR_TIMES          --呼转次数
+  ,(t1.FOR_DURATION*1.00)/60    FOR_DURATION      --呼转时长
+  ,t3.BA_CERT_MOBILE_NUM as kd_user_nums1
+  ,t3.BA_CERT_FIXNET_NUM as cnet_user_nums1
+  ,t3.BA_CUST_MOBILE_NUM as kd_user_nums2
+  ,t3.BA_CUST_FIXNET_NUM as cnet_user_nums2
+from (select *from EDW_SHARE.S_TD_USER_360_$TX_MONTH where op_time ='$TX_MONTH' and 
+										 USER_ID in(select USER_ID from ${db_name}.xyx_mubiao_users_all_201802))  t1
+left join ${db_name}.TB_ZFK_NAME_HY_M t2
+on t1.USER_ID = t2.subs_id and t2.cal_month = t1.op_time
+left join ${db_name}.TB_360_USERMID_M t3  --替换为360中间表
+on t3.subs_id = t1.USER_ID  and t3.cal_month = t1.op_time
+left join ( select * from
+                 (  select
+					prod_MODEL
+					,market_price
+					,standby_type
+					,ROW_NUMBER() OVER (PARTITION BY prod_MODEL ORDER BY market_price desc) as rn
+					from ods_sum.s_ldapd_trmnl_code_$TX_MONTH||28
+					group by prod_MODEL
+					,market_price
+					,standby_type) t
+			where t.rn = 1
+            )t4
+on t1.DEVICE_MODEL_ID=t4.prod_MODEL
+)
+;
+
+
+--3.3 用户DPI信息
+---DPI用户目标用户，近3月--每月一条同一类型的用户记录数！-----------------------> 
+drop table ${db_name}.xyx_dpi_mubiao_user_201802;
+create table ${db_name}.xyx_dpi_mubiao_user_201802 compress as (
+select 	distinct t.cal_month
+			,t.user_id
+		  ,case when t.APP_TYPE_NAME2 ='翼支付' then 'yzf_user'  --翼支付
+		  when t.APP_TYPE_NAME2  ='电信营业厅' or (t.TYPE_NAME2 ='电信自有内容入口' and t.APP_TYPE_NAME2='天翼客服' ) then 'huango_user'  --欢go
+			when t.TYPE_NAME1 = '教育' and t.APP_TYPE_NAME1='教育学习' then 'edu_user'   --教育类
+		  when t.TYPE_NAME2 = '房产' and (t.TYPE_NAME3 = '购房' or t.TYPE_NAME3 ='装修设计') then 'house_user' --购房装修类
+      when t.TYPE_NAME2 = '母婴市场' then 'mom_user'   --母婴类
+      when t.keyword like '%副卡%' then 'fuka_search_user'
+      when t.APP_TYPE_NAME2 ='微信' then 'wechat_user' --微信用户标识（新增@20180502）
+      else 'other_user' end class_name
+      ,sum(t.mtd_userflow)/1024/1024  mtd_userflow --使用流量
+      ,count(t.mtd_userflow) visit_times --访问次数
+from ( SELECT $TX_MONTH AS CAL_MONTH,USER_ID,PHONE_ID,VISIT_TYPE,TYPE_NAME1,TYPE_NAME2,TYPE_NAME3,TYPE_NAME4,TYPE_NAME5,TYPE_NAME6,APP_TYPE_NAME1,APP_TYPE_NAME2,APP_TYPE_NAME3,KEYWORD,PV,USERFLOW,MTD_PV,MTD_USERFLOW,FLAG_4G,WW_PHOTO_FLAG
+       FROM integ.i_e_dpi_cdr_jt_$LAST1MONTH_CHAR
+	   UNION ALL
+       SELECT $TX_MONTH AS CAL_MONTH,USER_ID,PHONE_ID,VISIT_TYPE,TYPE_NAME1,TYPE_NAME2,TYPE_NAME3,TYPE_NAME4,TYPE_NAME5,TYPE_NAME6,APP_TYPE_NAME1,APP_TYPE_NAME2,APP_TYPE_NAME3,KEYWORD,PV,USERFLOW,MTD_PV,MTD_USERFLOW,FLAG_4G,WW_PHOTO_FLAG
+       FROM integ.i_e_dpi_cdr_jt_$TX_MONTH	   ) T
+where t.cal_month between '$LAST1MONTH_CHAR' and '$TX_MONTH'
+group by   t.cal_month
+			,t.user_id
+		  ,case when t.APP_TYPE_NAME2 ='翼支付' then 'yzf_user'  --翼支付
+		  when t.APP_TYPE_NAME2  ='电信营业厅' or (t.TYPE_NAME2 ='电信自有内容入口' and t.APP_TYPE_NAME2='天翼客服' ) then 'huango_user'  --欢go
+			when t.TYPE_NAME1 = '教育' and t.APP_TYPE_NAME1='教育学习' then 'edu_user'   --教育类
+		  when t.TYPE_NAME2 = '房产' and (t.TYPE_NAME3 = '购房' or t.TYPE_NAME3 ='装修设计') then 'house_user' --购房装修类
+      when t.TYPE_NAME2 = '母婴市场' then 'mom_user'   --母婴类
+      when t.keyword like '%副卡%' then 'fuka_search_user'
+      when t.APP_TYPE_NAME2 ='微信' then 'wechat_user' --微信用户标识（新增@20180502）
+      else 'other_user' end              
+)  
+;
+ 
+
+--3.4 近三月是否更换套餐--finished
+--------用户是否更换套餐和换机
+drop table ${db_name}.mubiao_change_trmn_pge_1802;
+CREATE  TABLE ${db_name}.mubiao_change_trmn_pge_1802 compress as (
+select
+  t1.user_id
+ ,count(distinct DEVICE_MODEL_ID)   num_trmn
+ ,count(distinct t1.main_pp_id)        num_pge
+from (  SELECT  *
+		FROM EDW_SHARE.S_TD_USER_360_$TX_MONTH
+		UNION ALL
+		SELECT  *
+		FROM EDW_SHARE.S_TD_USER_360_$LAST1MONTH_CHAR
+		UNION ALL
+		SELECT  *
+		FROM EDW_SHARE.S_TD_USER_360_$LAST2MONTH_CHAR) t1
+inner join ${db_name}.xyx_basic_zfk_users_201802 t2
+on t1.user_id=t2.user_id
+where t1.op_time between '$LAST2MONTH_CHAR' and '$TX_MONTH'   --四个月的用户终端、套餐情况
+and t1.innet_flag = 1          --在网
+group by t1.user_id
+having count(distinct DEVICE_MODEL_ID)>=2 or count(distinct t1.main_pp_id) >=2
+)
+;
+
+--3.5 近三个月一个多卡数 【最终关联】
+drop table ${db_name}.xyx_mubiao_jkyc_1802;
+CREATE  TABLE ${db_name}.xyx_mubiao_jkyc_1802 compress as (
+select
+  t1.user_id
+ ,sum(case when t1.G4_YICHANG_ESN_FLAG='1' then 1 else 0 end )    YJDK_FLAG        --------一机多卡
+ ,sum(case when t1.G4_YICHANG_SERV_FLAG='1' then 1 else 0 end )   YKDJ_FLAG        --------一卡多机
+from (  SELECT  *
+		FROM EDW_SHARE.S_TD_USER_360_$TX_MONTH
+		UNION ALL
+		SELECT  *
+		FROM EDW_SHARE.S_TD_USER_360_$LAST1MONTH_CHAR) t1
+inner join ${db_name}.xyx_basic_zfk_users_201802 t2
+on t1.user_id=t2.user_id
+where t1.op_time   between '$LAST1MONTH_CHAR' and '$TX_MONTH'
+and t1.innet_flag = 1          --在网
+group by t1.user_id)
+;
+ 
+
+--3.6 近三月是否出账 【最终关联】
+drop table ${db_name}.xyx_mubiao_chuz_1802;
+CREATE  TABLE ${db_name}.xyx_mubiao_chuz_1802 compress as (
+select
+  t1.user_id
+ ,sum(case when t1.bill_flag =1 then 1 else 0 end )    chuz_nums        --------近三月出账月数
+ ,case when sum(case when t1.bill_flag =1 then 1 else 0 end ) = 0 then 0 else sum(t1.BILL_FEE)/100/sum(case when t1.bill_flag =1 then 1 else 0 end ) end chuz_avg   ---近三月均出账收入
+ ,sum(case when t1.AGG_OWE_FEE>0 then 1 else 0 end )    owe_nums        --------近三月欠费月数
+ ,sum(case when t1.CHARGE_TIMES is null then 0 else t1.CHARGE_TIMES end)   pay_nums          ---近三月缴费次数
+ ,sum(case when t1.CALL_DURATION is not null then 1 else 0 end) dur_nums      ---------近三个月通话月份数
+ ,case when sum(case when t1.CALL_DURATION is not null then 1 else 0 end) = 0 then 0 else sum(t1.CALL_DURATION)*1.00/60/sum(case when t1.CALL_DURATION is not null then 1 else 0 end) end dur_avg   ---近三月均通话时长
+ ,sum(case when t1.CALLING_DURATION is not null then 1 else 0 end) calling_dur_nums      ---------近三个月主叫通话次数
+ ,case when sum(case when t1.CALLING_DURATION is not null then 1 else 0 end) = 0 then 0 else sum(t1.CALLING_DURATION)*1.00/60/sum(case when t1.CALLING_DURATION is not null then 1 else 0 end) end calling_dur_avg   ---近三月均主叫通话时长
+,sum(case when t1.CALL_TOLL_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end) long_pp_nums --近三月长途占比次数
+,case when sum(case when t1.CALL_TOLL_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end)  =0 then 0 else sum((t1.CALL_TOLL_DURATION*1.0000)/NULLIF(t1.CALL_DURATION,0))/sum(case when t1.CALL_TOLL_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end) end long_pp_avg --近三月长途占比均值
+,sum(case when t1.ROAM_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end) roam_pp_nums --近三月漫游占比次数
+,case when sum(case when t1.ROAM_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end)  =0 then 0 else sum((t1.ROAM_DURATION*1.0000)/NULLIF(t1.CALL_DURATION,0))/sum(case when t1.ROAM_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end) end roam_pp_avg --近三月漫游占比均值
+,sum(case when t1.CALLING_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end) calling_pp_nums --近三月主叫占比次数
+,case when sum(case when t1.CALLING_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end) =0 then 0 else sum((t1.CALLING_DURATION*1.0000)/NULLIF(t1.CALL_DURATION,0))/sum(case when t1.CALLING_DURATION/NULLIF(t1.CALL_DURATION,0) is not null then 1 else 0 end) end calling_pp_avg --近三月主叫占比均值
+,sum(case when (COALESCE(t1.G4_FLUX,0)+COALESCE(t1.G3_FLUX,0)+COALESCE(t1.G2_FLUX,0))/1024 is not null then 1 else 0 end)  flow_nums--近三月流量月数
+,case when sum(case when (COALESCE(t1.G4_FLUX,0)+COALESCE(t1.G3_FLUX,0)+COALESCE(t1.G2_FLUX,0))/1024 is not null then 1 else 0 end) = 0 then 0 else sum((COALESCE(t1.G4_FLUX,0)+COALESCE(t1.G3_FLUX,0)+COALESCE(t1.G2_FLUX,0))/1024)/sum(case when (COALESCE(t1.G4_FLUX,0)+COALESCE(t1.G3_FLUX,0)+COALESCE(t1.G2_FLUX,0))/1024 is not null then 1 else 0 end) end flow_avg--近三月流量
+,sum(case when t1.FOR_TIMES is null then 0 else 1 end)   turn_nums          ---近三月呼叫转移月数
+,case when sum(case when t1.FOR_TIMES is null then 0 else 1 end) =0 then 0 else (sum(t1.FOR_TIMES)*1.00)/sum(case when t1.FOR_TIMES is null then 0 else 1 end) end turn_times_avg   --近三月呼叫转移次数均值
+,sum(case when t1.FOR_DURATION is null then 0 else 1 end)   turn_dur_nums          ---近三月呼叫转移时长月数
+,case when sum(case when t1.FOR_DURATION is null then 0 else 1 end) =0 then 0 else sum(t1.FOR_DURATION)*1.00/sum(case when t1.FOR_DURATION is null then 0 else 1 end) end turn_dur_avg   --近三月呼叫转移时长均值
+from (  SELECT  *
+		FROM EDW_SHARE.S_TD_USER_360_$TX_MONTH
+		UNION ALL
+		SELECT  *
+		FROM EDW_SHARE.S_TD_USER_360_$LAST1MONTH_CHAR) t1
+inner join ${db_name}.xyx_basic_zfk_users_201802 t2
+on t1.user_id=t2.user_id
+where t1.op_time between '$LAST1MONTH_CHAR' and '$TX_MONTH'
+and t1.innet_flag = 1          --在网
+group by t1.user_id)
+;
+
+
+--3.7 基础表：翼支付用户建表 【最终关联】
+drop table ${db_name}.xyx_zfk_yzf_201802;
+create table ${db_name}.xyx_zfk_yzf_201802 compress as (
+select substr(to_char(cen_plat_account_date),1,6) cal_month,MSISDN,sum(exchg_before_amt - exchg_after_amt) as exchg_amt
+    from 
+			${db_name}.TB_EVT_YZF_DEAL_M
+			where substr(to_char(cen_plat_account_date),1,6) between '$LAST1MONTH_CHAR' and '$TX_MONTH'
+			and exchg_before_amt - exchg_after_amt>0
+			group by substr(to_char(cen_plat_account_date),1,6),MSISDN
+)
+;
+
+
+--3.8客服    【最终关联】
+--来电201708-201710
+--${db_name}.tb_subs_id_temp_20180315
+---来电201707/201711/201712
+--${db_name}.tb_temp_20180403_d_new
+--通用表-------------------------------------
+drop table ${db_name}.xyx_mubiao_kefu_201802;
+create table ${db_name}.xyx_mubiao_kefu_201802 compress as 
+(
+select TRIM(substr(CALL_START_TIME,1,6)) cal_month
+,calling_nbr
+,count(*) call_times
+from ${db_name}.g_cs_10000calling_d
+where TRIM(substr(CALL_START_TIME,1,6)) between '$LAST1MONTH_CHAR' and '$TX_MONTH'
+group by TRIM(substr(CALL_START_TIME,1,6)),calling_nbr
+)
+;
+
+
+--3.9 投诉、工单  sdata.tb_sr_problem_process_d 【最终关联】
+--投诉，越级投诉全量明细表：
+--status_cd：未处理状态（1、2、3、5、66（处理中）、7（处理中）、6（已处理））
+drop table ${db_name}.xyx_mubiao_tousu_201802;
+create table ${db_name}.xyx_mubiao_tousu_201802 compress as (
+select 
+substr(to_char(accept_time),1,6) cal_month
+,t.*
+from 
+dm_prod.SR_PROBLEM_PROCESS t
+where substr(to_char(accept_time),1,6) between '$LAST1MONTH_CHAR' and '$TX_MONTH'
+)
+;
+
+
+--4. 全用户字段（流量饱和度、收入档位占比）【最终关联】
+drop table ${ db_name}.xyx_mubiao_incomepp_201802;
+
+create table ${ db_name}.xyx_mubiao_incomepp_201802 compress as (
+	select t1.op_time,
+	t1.user_id,
+	t3.main_pp_id,
+	case when t4.pge_stall is not null then t4.pge_stall else 0 end pge_stall --套餐档位（元)
+	,case when t4.pge_flow is not null then t4.pge_flow else 0 end pge_flow --套餐流量（M)
+	,t1.BILL_FEE / 100 / NULLIF(pge_stall, 0) income_dangwei_pp --收入档位比
+	,(t1.flows * 1.0000) / NULLIF(pge_flow, 0) flow_satur_pp --流量饱和度
+	,(t1.roam_flows * 1.0000) / NULLIF(t1.flows, 0) flow_roam_pp --流量漫游占比
+	from (
+	select t1.op_time,
+		t1.user_id,
+		t1.BILL_FEE --收入
+		,(COALESCE(t1.G4_FLUX, 0) + COALESCE(t1.G3_FLUX, 0) + COALESCE(t1.G2_FLUX, 0)) / 1024 flows --总流量
+		,COALESCE(t1.IX_ROAM_KBYTES, 0) / 1024 roam_flows --漫游流量
+	from EDW_SHARE.S_TD_USER_360_$TX_MONTH t1
+	where t1.user_id in (
+			select user_id
+			from ${ db_name}.xyx_basic_zfk_users_201802) --目标用户
+	        and t1.op_time between '$LAST1MONTH_CHAR' and '$TX_MONTH') t1 
+	left join ${ db_name}.TB_ZFK_NAME_HY_M t3 
+	on t3.subs_id = t1.user_id and t3.cal_month = t1.op_time 
+	left join (select distinct price_plan_cd MAIN_PP_ID,PGE_STALL,PGE_FLOW
+	            from ${ db_name}.zude_tcdangwei
+	            group by price_plan_cd ,PGE_STALL,PGE_FLOW) T4 --主流资费档位及流量表
+	on t3.main_pp_id = t4.MAIN_PP_ID
+	);
+
+ 
+
+--5. 副卡条件限制：副卡流量>10M----------------------
+--主副卡关联表（在网）
+drop table  ${db_name}.TB_ZFK_CONNECTION_M_new;
+create table  ${db_name}.TB_ZFK_CONNECTION_M_new compress as (
+select t1.*
+from ${db_name}.TB_ZFK_CONNECTION_M  t1
+inner join EDW_SHARE.S_TD_USER_360_$TX_MONTH  t2
+on t2.innet_flag=1 and t2.op_time =t1.op_time
+and t1.user_id_zhu =t2.user_id
+inner join EDW_SHARE.S_TD_USER_360_$TX_MONTH  t3
+on t3.innet_flag=1 and t3.op_time =t1.op_time
+and t1.user_id_fu =t3.user_id
+where t1.op_time between '$NEXT1MONTH_CHAR' and '$NEXT3MONTH_CHAR'
+)
+;
+
+
+--后三月主副卡流量情况       【最终关联】
+drop table ${ db_name}.TB_ZFK_CONNECTION_new1_201802;
+
+create table ${ db_name}.TB_ZFK_CONNECTION_new1_201802 compress as (
+	select t1.*,t2.flows --总流量
+	from (  select *
+			from ${ db_name}.TB_ZFK_CONNECTION_M_new
+			where op_time between '$NEXT1MONTH_CHAR' and '$NEXT3MONTH_CHAR') t1 
+	left join (SELECT * FROM 
+					   (select ((COALESCE(a.G4_FLUX, 0) + COALESCE(a.G3_FLUX, 0) + COALESCE(a.G2_FLUX, 0)) / 1024) as  flows,user_id,
+						ROW_NUMBER() over (partition by a.user_id order by ((COALESCE(a.G4_FLUX, 0) + COALESCE(a.G3_FLUX, 0) + COALESCE(a.G2_FLUX, 0)) / 1024) desc) as rn
+						from (  SELECT  *
+								FROM EDW_SHARE.S_TD_USER_360_$NEXT1MONTH_CHAR
+								UNION ALL
+								SELECT  *
+								FROM EDW_SHARE.S_TD_USER_360_$NEXT2MONTH_CHAR
+								UNION ALL
+								SELECT  *
+								FROM EDW_SHARE.S_TD_USER_360_$NEXT3MONTH_CHAR) a
+						where (op_time between '$NEXT1MONTH_CHAR' and '$NEXT3MONTH_CHAR') and innet_flag = 1 ) t
+				WHERE t.rn = 1
+	) t2 
+	on t2.user_id = t1.user_id_fu
+	);
+
+--6. 基础用户汇总：主副卡用户各指标汇总
+drop table ${db_name}.xyx_basic_zfk_users1_201802;
+create table ${db_name}.xyx_basic_zfk_users1_201802 compress as (
+select t1.* 
+,t2.DPI_APP_NUM nums_app		--当月APP个数
+,t3.nums_app_avg--3月均APP个数
+,case when t4.MSISDN is not null then 1 else 0 end  if_yzf_user   	 --本月是否翼支付用户
+,case when t5.MSISDN is not null then 1 else 0 end  if_yzf_user_avg  --近三月是否翼支付用户
+,t6.mtd_userflow        flow_huango_user			--当月欢go用户流量
+,t7.mtd_userflow_avg    flow_huango_user_avg	--近三月欢go用户流量       
+,t8.mtd_userflow   			flow_edu_user         --当月教育类APP用户流量       
+,t9.mtd_userflow_avg    flow_edu_user_avg     --近三月教育类APP用户流量       
+,t10.mtd_userflow 			flow_house_user       --当月房产类APP用户流量       
+,t11.mtd_userflow_avg   flow_house_user_avg   --近三月房产类APP用户流量       
+,t12.mtd_userflow  			flow_mom_user         --当月母婴类APP用户流量       
+,t13.mtd_userflow_avg   flow_mom_user_avg     --近三月母婴类APP用户流量       
+,case when t14.class_name is not null then 1 else 0 end if_search_user     --当月是否搜索“副卡”关键字信息
+,case when t15.class_name is not null then 1 else 0 end if_search_user_avg --近三月是否搜索“副卡”关键字信息          
+,case when t16.user_id is not null then 243
+			when t16.user_id is null and t17.user_id is not null then 244
+			else 0 end PROD_COMP_RELA_ROLE_CD                           --主副卡标识
+,case when t18.num_trmn>=2 then '1' else '0' end if_change_trmn   --近三月是否更换终端
+,case when t18.num_pge>=2 then '1' else '0' end if_change_pge  		--近三月是否更换套餐
+,t19.YJDK_FLAG as YJDK_FLAG_nums       --近三月一机多卡数
+,t19.YKDJ_FLAG as YKDJ_FLAG_nums       --近三月一卡多机数
+,t20.chuz_nums    --近三月出账数
+,t20.chuz_avg     --月均出账收入
+,t20.owe_nums			--欠费次数
+,t20.pay_nums     --近三月缴费次数
+,T20.dur_avg   		--近三月均通话时长
+,T20.calling_dur_avg   --近三月均主叫通话时长
+,T20.calling_pp_avg 	 --近三月主叫占比均值
+,T20.long_pp_avg 			 --近三月长途占比均值
+,T20.ROAM_pp_avg 			 --近三月漫游占比均值
+,t20.flow_avg    			 --近三月流量
+,t20.turn_times_avg    --近三月呼叫转移次数均值
+,t20.turn_dur_avg      --近三月呼叫转移时长均值
+,t2.vc_days      		 --当月语音通信天数
+,t3.vc_days_avg  		 --近三月语音通信天数均值
+,t2.VC_bs_num nums_bs_vc   		 --当月语音通话基站数
+,t3.nums_bs_vc_avg    --月均通话基站数
+,(t2.VC_BN_BT15_DAYS)*1.0000/NULLIF(t2.VC_bs_num,0) as  vc_bs_20_pp        --本月基站数超20个天数占比
+,t3.vc_bs_20_pp_avg    --近3月基站数超20个天数占比
+,t2.jwq_num              nums_jwq               --交往圈个数         
+,nvl(t3.nums_jwq_avg,0)              nums_jwq_avg  --近3月月均交往圈个数    
+,t2.jwq_fix_num   jwq_fixed_pp         			 --固网交往圈个数     
+,nvl(t3.jwq_fixed_pp_avg,0)              jwq_fixed_pp_avg  --近3月月均固网交往圈个数
+,nvl(t2.jwq_valid_num*1.0000/NULLIF(t2.jwq_num,0),0)              jwq_valid_pp   --有效交往圈个数占比     
+,nvl(t3.jwq_valid_pp_avg,0)              jwq_valid_pp_avg       										--近3月月均有效交往圈个数占比
+,t33.call_times          --本月主叫客服次数
+,t34.call_times_avg      --近三月主叫客服次数均值
+,t35.nums_tousu          --本月投诉次数
+,t37.nums_tousu_avg      --近三月均投诉次数
+,case when t36.subs_number is not null then 1 else 0 end if_undealed_list  --是否存在未处理的工单
+,nvl(t2.JWQ_DX_LONG_NUM,0)      nums_dx_long           							 --定向长途交往圈个数     
+,nvl(t2.JWQ_CLOSE_NUM,0 )             nums_close_contact     				 --紧密联系人个数       
+,t2.FC_BS_NUM  as nums_bs_flow     											--本月流量基站数
+,t3.nums_bs_flow_avg  											--近三月流量基站数均值
+,t2.FC_BN_BT20_DAYS*1.0000/NULLIF(t2.FC_BS_NUM,0)    flow_bs_20_pp       	--本月基站数超20天数占比
+,t3.flow_bs_20_pp_avg   --近三月基站数超20天数占比
+,t2.FC_DAYS       flow_days       							  	--本月流量通信天数
+,t3.flow_days_avg          								--近三月均流量通信天数
+,case when t2.FC_DIFF_D_FLOW/NULLIF(t1.flows,0) >1 then 1 else  t2.FC_DIFF_D_FLOW/NULLIF(t1.flows,0) end flows_diff_pp  --本月流量差占比情况
+,case when t3.flows_diff_pp_avg >1 then 1 else  t3.flows_diff_pp_avg end flows_diff_pp_avg    --近三月流量差占比均值
+,t2.ba_roam_days as days_roam               --本月漫游天数
+,t3.days_roam_avg           --近三月漫游均值
+from ${db_name}.xyx_basic_zfk_users_201802 t1
+left join ${db_name}.TB_360_USERMID_M t2--360中间表近三月数据
+on t1.op_time = t2.cal_month 
+and t2.subs_id = t1.user_id 
+left join 
+(		select t1.subs_id
+		,AVG(DPI_APP_NUM) as nums_app_avg      
+		,AVG(VC_DAYS) 		as vc_days_avg  		 --近三月语音通信天数均值
+		,AVG(VC_BS_NUM) 	as nums_bs_vc_avg  	 --月均通话基站数
+		,AVG(VC_BN_BT15_DAYS*1.0000/NULLIF(VC_DAYS,0)) 	as vc_bs_20_pp_avg --近3月基站数超15个天数占比
+		,AVG(JWQ_NUM)   as nums_jwq_avg      	 		 --交往圈个数均值
+		,AVG(JWQ_FIX_NUM)   as jwq_fixed_pp_avg    --固网交往圈个数均值
+		,AVG(JWQ_VALID_NUM*1.0000/NULLIF(JWQ_NUM,0))   as jwq_valid_pp_avg    --近3月月均有效交往圈个数占比
+		,AVG(FC_BS_NUM)  as nums_bs_flow_avg  	 --近三月流量基站数均值
+		,AVG(FC_BN_BT20_DAYS*1.0000/NULLIF(FC_BS_NUM,0)) AS flow_bs_20_pp_avg --近三月流量基站>20个天数占比均值
+		,AVG(FC_DAYS) AS flow_days_avg       --近三月流量通信天数均值
+		,AVG(T1.FC_DIFF_D_FLOW*1.0000/NULLIF(flows,0)) as  flows_diff_pp_avg
+		,AVG(T1.ba_roam_days) AS days_roam_avg  --近三月漫游天数均值
+		from ${db_name}.TB_360_USERMID_M t1 
+		left join (select op_time, 
+					(IX_KBYTES*1.00)/1024 flows
+					,user_id
+					from (  SELECT  *
+							FROM EDW_SHARE.S_TD_USER_360_$TX_MONTH
+							UNION ALL
+							SELECT  *
+							FROM EDW_SHARE.S_TD_USER_360_$LAST1MONTH_CHAR) t
+					where (op_time between '$LAST1MONTH_CHAR' AND '$TX_MONTH') 
+					and innet_flag =1)t2
+		on t1.cal_month =t2.op_time and t1.subs_id =t2.user_id
+		group by t1.subs_id
+) t3 --360中间表近三月数据，计算指标均值
+on t3.subs_id = t1.user_id
+left join 
+${db_name}.xyx_zfk_yzf_201802 t4
+on t4.cal_month = t1.op_time
+and t4.MSISDN =t1.ACC_NBR
+left join 
+(
+select distinct MSISDN
+from ${db_name}.xyx_zfk_yzf_201802
+)t5
+on t5.MSISDN = t1.ACC_NBR
+left join 
+${db_name}.xyx_dpi_mubiao_user_201802 t6
+on t6.cal_month = t1.op_time
+and t6.user_id =t1.user_id
+and t6.class_name = 'huango_user'
+left join 
+(	select user_id,count(cal_month) nums_month ,sum(mtd_userflow)/NULLIF(count(cal_month),0) mtd_userflow_avg
+	from ${db_name}.xyx_dpi_mubiao_user_201802
+	where class_name = 'huango_user'
+	group by user_id
+)t7
+on t7.user_id = t1.user_id
+left join 
+${db_name}.xyx_dpi_mubiao_user_201802 t8
+on t8.cal_month = t1.op_time
+and t8.user_id =t1.user_id
+and t8.class_name = 'edu_user'
+left join 
+(
+select user_id,count(cal_month) nums_month ,sum(mtd_userflow)/NULLIF(count(cal_month),0) mtd_userflow_avg
+from ${db_name}.xyx_dpi_mubiao_user_201802
+where class_name = 'edu_user'
+group by user_id
+)t9
+on t9.user_id = t1.user_id
+left join 
+${db_name}.xyx_dpi_mubiao_user_201802 t10
+on t10.cal_month = t1.op_time
+and t10.user_id =t1.user_id
+and t10.class_name = 'house_user'
+left join 
+(
+select user_id,count(cal_month) nums_month ,sum(mtd_userflow)/NULLIF(count(cal_month),0) mtd_userflow_avg
+from ${db_name}.xyx_dpi_mubiao_user_201802
+where class_name = 'house_user'
+group by user_id
+)t11
+on t11.user_id = t1.user_id
+left join 
+${db_name}.xyx_dpi_mubiao_user_201802 t12
+on t12.cal_month = t1.op_time
+and t12.user_id =t1.user_id
+and t12.class_name = 'mom_user'
+left join 
+(
+select user_id,count(cal_month) nums_month ,sum(mtd_userflow)/NULLIF(count(cal_month),0) mtd_userflow_avg
+from ${db_name}.xyx_dpi_mubiao_user_201802
+where class_name = 'mom_user'
+group by user_id
+)t13
+on t13.user_id = t1.user_id
+left join 
+${db_name}.xyx_dpi_mubiao_user_201802 t14
+on t14.cal_month = t1.op_time
+and t14.user_id =t1.user_id
+and t14.class_name = 'fuka_search_user'
+left join 
+(
+select distinct user_id,class_name
+from ${db_name}.xyx_dpi_mubiao_user_201802
+where class_name = 'fuka_search_user'
+)t15
+on t15.user_id = t1.user_id
+left join  (select distinct op_time
+,user_id
+from INTEG.I_U_COM_PROD_M where  prod_comp_rela_role_cd=243)t16
+on t16.op_time = t1.op_time
+and t16.user_id = t1.user_id
+left join (select distinct op_time
+,user_id
+from INTEG.I_U_COM_PROD_M where  prod_comp_rela_role_cd=244 )t17
+on t17.op_time = t1.op_time
+and t17.user_id = t1.user_id
+left join ${db_name}.mubiao_change_trmn_pge_1802 t18
+on t18.user_id = t1.user_id
+left join ${db_name}.xyx_mubiao_jkyc_1802 t19
+on t19.user_id = t1.user_id
+left join ${db_name}.xyx_mubiao_chuz_1802 t20
+on t20.user_id =t1.user_id 
+left join ${db_name}.xyx_mubiao_kefu_201802 t33
+on t33.calling_nbr = t1.ACC_NBR and t33.cal_month =t1.op_time
+left join (select calling_nbr
+,count(cal_month) nums_month
+,(sum(call_times)*1.00)/NULLIF(count(cal_month),0) call_times_avg
+from ${db_name}.xyx_mubiao_kefu_201802
+group by calling_nbr)t34
+on t34.calling_nbr = t1.ACC_NBR
+left join 
+(select 
+cal_month
+,subs_number
+,count( *) nums_tousu
+from ${db_name}.xyx_mubiao_tousu_201802
+group by cal_month
+,subs_number)t35
+on t35.cal_month=t1.op_time and t1.ACC_NBR = t35.subs_number
+left join 
+(select t.subs_number,count(cal_month) nums_month
+,(sum(nums_tousu)*1.00)/NULLIF(count(cal_month),0) nums_tousu_avg --月均投诉
+from (select 
+cal_month
+,subs_number
+,count(*) nums_tousu
+from ${db_name}.xyx_mubiao_tousu_201802
+group by cal_month
+,subs_number) t
+group by t.subs_number)t37
+on t37.subs_number = t1.ACC_NBR
+left join 
+(select 
+distinct cal_month
+,subs_number
+from ${db_name}.xyx_mubiao_tousu_201802
+where status_cd <>6 and  status_cd <>66)t36
+on t36.subs_number=t1.ACC_NBR and t36.cal_month =t1.op_time
+) 
+;
+
+
+--7. 目标主副卡用户筛选————对应的副卡流量是否>10M
+drop table ${db_name}.xyx_mubiao_zfk_main_201802;
+create table ${db_name}.xyx_mubiao_zfk_main_201802 as (
+select 
+case when  t2.user_id_zhu is not null then '$NEXT1MONTH_CHAR'
+       when  t3.user_id_zhu is not null then '$NEXT2MONTH_CHAR'
+       when  t4.user_id_zhu is not null then '$NEXT3MONTH_CHAR'
+       else '非主副卡' end ZK_MONTH
+,case when  t5.user_id_fu is not null then '$NEXT1MONTH_CHAR'
+       when t6.user_id_fu is not null then '$NEXT2MONTH_CHAR'
+       when  t7.user_id_fu is not null then '$NEXT3MONTH_CHAR'
+       else '非主副卡' end   FK_MONTH 
+,case when s1.op_time is not null and  case when  t2.user_id_zhu is not null then '$NEXT1MONTH_CHAR' when  t3.user_id_zhu is not null then '$NEXT2MONTH_CHAR' when  t4.user_id_zhu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT1MONTH_CHAR' then 1
+      when s1.op_time is     null and  case when  t2.user_id_zhu is not null then '$NEXT1MONTH_CHAR' when  t3.user_id_zhu is not null then '$NEXT2MONTH_CHAR' when  t4.user_id_zhu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT1MONTH_CHAR' then 0
+      when s2.op_time is not null and  case when  t2.user_id_zhu is not null then '$NEXT1MONTH_CHAR' when  t3.user_id_zhu is not null then '$NEXT2MONTH_CHAR' when  t4.user_id_zhu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT2MONTH_CHAR' then 1
+      when s2.op_time is     null and  case when  t2.user_id_zhu is not null then '$NEXT1MONTH_CHAR' when  t3.user_id_zhu is not null then '$NEXT2MONTH_CHAR' when  t4.user_id_zhu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT2MONTH_CHAR' then 0
+      when s3.op_time is not null and  case when  t2.user_id_zhu is not null then '$NEXT1MONTH_CHAR' when  t3.user_id_zhu is not null then '$NEXT2MONTH_CHAR' when  t4.user_id_zhu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT3MONTH_CHAR' then 1
+      when s3.op_time is     null and  case when  t2.user_id_zhu is not null then '$NEXT1MONTH_CHAR' when  t3.user_id_zhu is not null then '$NEXT2MONTH_CHAR' when  t4.user_id_zhu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT3MONTH_CHAR' then 0
+      when s4.op_time is not null and  case when  t5.user_id_fu is not null then '$NEXT1MONTH_CHAR' when t6.user_id_fu is not null then '$NEXT2MONTH_CHAR' when  t7.user_id_fu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT1MONTH_CHAR' then 1 
+      when s4.op_time is     null and  case when  t5.user_id_fu is not null then '$NEXT1MONTH_CHAR' when t6.user_id_fu is not null then '$NEXT2MONTH_CHAR' when  t7.user_id_fu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT1MONTH_CHAR' then 0
+      when s5.op_time is not null and  case when  t5.user_id_fu is not null then '$NEXT1MONTH_CHAR' when t6.user_id_fu is not null then '$NEXT2MONTH_CHAR' when  t7.user_id_fu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT2MONTH_CHAR' then 1 
+      when s5.op_time is     null and  case when  t5.user_id_fu is not null then '$NEXT1MONTH_CHAR' when t6.user_id_fu is not null then '$NEXT2MONTH_CHAR' when  t7.user_id_fu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT2MONTH_CHAR' then 0
+      when s6.op_time is not null and  case when  t5.user_id_fu is not null then '$NEXT1MONTH_CHAR' when t6.user_id_fu is not null then '$NEXT2MONTH_CHAR' when  t7.user_id_fu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT3MONTH_CHAR' then 1 
+      when s6.op_time is     null and  case when  t5.user_id_fu is not null then '$NEXT1MONTH_CHAR' when t6.user_id_fu is not null then '$NEXT2MONTH_CHAR' when  t7.user_id_fu is not null then '$NEXT3MONTH_CHAR' else '非主副卡' end ='$NEXT3MONTH_CHAR' then 0
+      else null end if_fuka_10M--副卡流量>10M
+,t1.*
+,t8.pge_stall
+,t8.pge_flow
+,t8.income_dangwei_pp
+,case when t8.flow_satur_pp>1 then 1 else t8.flow_satur_pp end flow_satur_pp
+,t9.income_dangwei_pp_avg
+,case when t9.flow_satur_pp_avg>1 then 1 else t9.flow_satur_pp_avg end flow_satur_pp_avg
+,case when t8.flow_roam_pp >1 then 1 else t8.flow_roam_pp end flow_roam_pp
+,case when t9.flow_roam_pp_avg >1 then 1 else t9.flow_roam_pp_avg end flow_roam_pp_avg
+from (select * from ${db_name}.xyx_basic_zfk_users1_201802 where PROD_COMP_RELA_ROLE_CD=0) t1
+left join (select distinct op_time,user_id_zhu from ${db_name}.TB_ZFK_CONNECTION_M_new) t2
+on t2.op_time =$NEXT1MONTH_CHAR and t2.user_id_zhu  =t1.user_id 
+left join (select distinct op_time,user_id_zhu from ${db_name}.TB_ZFK_CONNECTION_new1_201802 where flows>10)s1--副卡流量>10M de 主卡用户
+on s1.user_id_zhu = t2.user_id_zhu 
+left join (select distinct op_time,user_id_zhu from ${db_name}.TB_ZFK_CONNECTION_M_new) t3
+on t3.op_time =$NEXT2MONTH_CHAR and t3.user_id_zhu  =t1.user_id 
+left join (select distinct op_time,user_id_zhu from ${db_name}.TB_ZFK_CONNECTION_new1_201802 where flows>10)s2--副卡流量>10M de 主卡用户
+on s2.user_id_zhu = t3.user_id_zhu 
+left join (select distinct op_time,user_id_zhu from ${db_name}.TB_ZFK_CONNECTION_M_new) t4
+on t4.op_time =$NEXT3MONTH_CHAR and t4.user_id_zhu  =t1.user_id
+left join (select distinct op_time,user_id_zhu from ${db_name}.TB_ZFK_CONNECTION_new1_201802 where flows>10)s3--副卡流量>10M de 主卡用户
+on s3.user_id_zhu = t4.user_id_zhu 
+left join (select distinct op_time,user_id_fu from ${db_name}.TB_ZFK_CONNECTION_M_new) t5
+on t5.op_time =$NEXT1MONTH_CHAR and t5.user_id_fu  =t1.user_id
+left join (select distinct op_time,user_id_fu from ${db_name}.TB_ZFK_CONNECTION_new1_201802 where flows>10)s4--副卡流量>10M de 副卡用户
+ on s4.user_id_fu = t5.user_id_fu 
+left join (select distinct op_time,user_id_fu from ${db_name}.TB_ZFK_CONNECTION_M_new) t6
+on t6.op_time =$NEXT2MONTH_CHAR and t6.user_id_fu  =t1.user_id
+left join (select distinct op_time,user_id_fu from ${db_name}.TB_ZFK_CONNECTION_new1_201802 where flows>10)s5--副卡流量>10M de 副卡用户
+ on s5.user_id_fu = t6.user_id_fu 
+left join (select distinct op_time,user_id_fu from ${db_name}.TB_ZFK_CONNECTION_M_new) t7
+on t7.op_time =$NEXT3MONTH_CHAR and t7.user_id_fu  =t1.user_id
+left join (select distinct op_time,user_id_fu from ${db_name}.TB_ZFK_CONNECTION_new1_201802 where flows>10)s6--副卡流量>10M de 副卡用户
+ on s6.user_id_fu = t7.user_id_fu 
+left join ${db_name}.xyx_mubiao_incomepp_201802 t8
+on t8.user_id=t1.user_id and t8.op_time =t1.op_time
+left join 
+(select user_id,count(op_time) nums_month
+   ,(sum(income_dangwei_pp)*1.0000)/nullif(count(op_time),0) income_dangwei_pp_avg --近三月月均收入档位比
+   ,(sum(flow_satur_pp)*1.0000)/nullif(count(op_time),0) flow_satur_pp_avg				 --近三月月均流量饱和度
+   ,(sum(flow_roam_pp)*1.0000)/nullif(count(op_time),0) flow_roam_pp_avg					 --近三月月均漫游流量占比
+from ${db_name}.xyx_mubiao_incomepp_201802 group by user_id
+)t9
+on t9.user_id=t1.user_id
+) 
+;
+
+
+
+-----配作业时：建表语句删除，每月增量插入数据！--------------------------------------------------
+--9.顺序调整，导入宽表
+alter table  ${db_name}.xyx_mubiao_zfk_main_m truncate partition "P_$TX_MONTH";
+alter table ${db_name}.xyx_mubiao_zfk_main_m add partition "P_$TX_MONTH" values ($TX_MONTH)
+    tablespace TBS_DATA24
+    pctfree 0
+    initrans 1
+    maxtrans 255
+    storage
+    (
+      initial 80K
+      next 1M
+      minextents 1
+      maxextents unlimited
+    );
+
+insert  /*+ append nologging */ into  ${db_name}.xyx_mubiao_zfk_main_m
+select
+t1.op_time                   --月份  
+,t1.user_id                     --用户id
+,t1.zk_month                    --成为主卡月份
+,t1.fk_month                    --成为副卡月份
+,t1.if_fuka_10M                 --是否副卡流量大于10M
+,t1.P_AGE                         --年龄         
+,t1.P_GENDER_ID                      --性别         
+,t1.local_flag                  --是否本地人      
+,nvl(t1.chunjie_roam_days,0)   chunjie_roam_days --2018年春节漫游天数
+,t1.USER_ONLINE_DURA                    --网龄    
+,t1.MAIN_PROD_ID2                  --用户类型  
+,t1.USER_STS_ID                  --用户状态  
+,t1.ronghe_flag                 --宽带融合类型
+,t1.prod_comp_rela_role_cd      --主副卡类型
+,t1.cert_type_name              --证件类型
+,nvl(t1.cnet_user_nums1,0)    cnet_user_nums1         --证件下移动号码数量 
+,nvl(t1.kd_user_nums1 ,0)     kd_user_nums1          --证件下宽带号码数量  
+,nvl(t1.cnet_user_nums2,0 )   cnet_user_nums2         --客户下移动号码数量
+,nvl(t1.kd_user_nums2 ,0)     kd_user_nums2          --客户下宽带号码数量  
+,t1.if_jt_user                  --是否集团客户
+,t1.month_contract_over         --合约到期月份
+,t2.name tc_name                --主套餐名称  
+,t1.tc_type                     --主套餐类型 
+,t1.pge_stall                   --主套餐档位
+,t1.if_change_pge               --近3月是否变更套餐
+,t1.if_change_trmn              --近3月是否换机  
+,t1.market_price                --终端价格  
+,t1.standby_type                --终端双卡制式
+,t1.bill_flag                   --是否出账
+,t1.chuz_nums                   --近3月出账月数
+,t1.user_credit_value/1000.00    user_credit_value       --信用度
+,nvl(t3.MEMBERSHIP_LEVEL,0) MEMBERSHIP_LEVEL--用户星级
+,t1.yjdk_flag_nums              --近3月一机多卡月数 
+,t1.ykdj_flag_nums              --近3月一卡多机月数 
+,t1.consume_amt                 --出账收入
+,t1.chuz_avg  consume_amt_avg   --月均出账收入
+,t1.income_dangwei_pp           --收入档位比
+,t1.income_dangwei_pp_avg       --月均收入档位比
+,nvl(t1.AGG_OWE_FEE,0)   AGG_OWE_FEE             --欠费金额
+,t1.owe_nums                    												--近3月欠费月数
+,nvl(t1.charge_times,0)      charge_times               --缴费次数
+,nvl(t1.pay_nums,0)          pay_nums                  --近三月缴费次数
+,nvl(t1.days_roam,0)         roam_days                   --漫游天数
+,nvl(t1.days_roam_avg,0)         roam_days_avg            --漫游天数均值
+,nvl(t1.CALL_DURATION,0)          CALL_DURATION                  --通话时长
+,nvl(t1.dur_avg ,0)          dur_avg                     ---近三月均通话时长
+,nvl(t1.CALLING_DURATION,0)  CALLING_DURATION             --主叫时长
+,nvl(t1.calling_dur_avg,0)   calling_dur_avg            --近三月均主叫通话时长
+,nvl(t1.calling_port,0)      calling_pp  									--主叫时长占比
+,nvl(t1.calling_pp_avg,0)    calling_pp_avg							 --近三月主叫占比均值
+,nvl(t1.roam_port,0)         roam_pp        							--漫游时长占比
+,nvl(t1.roam_pp_avg,0)       roam_pp_avg              		--近三月漫游占比均值
+,nvl(t1.long_port,0)        long_pp        							--长途时长占比
+,nvl(t1.long_pp_avg,0)       long_pp_avg                 --近三月长途占比均值
+,nvl(t1.flows,0)             flows                        --流量
+,nvl(t1.flow_avg,0)          flow_avg                     --近三月流量
+,nvl(t1.flow_satur_pp,0)     flow_satur_pp                --流量饱和度
+,nvl(t1.flow_satur_pp_avg,0) flow_satur_pp_avg            --近三月流量饱和度
+,nvl(t1.flow_roam_pp,0)      flow_roam_pp                 --漫游流量占比
+,nvl(t1.flow_roam_pp_avg,0)  flow_roam_pp_avg             --近3月月均漫游流量占比
+,nvl(t1.FOR_TIMES   ,0 )       FOR_TIMES                      --呼叫转移次数
+,nvl(t1.turn_times_avg,0)    FOR_TIMES_avg								 		--近三月呼叫转移次数均值
+,nvl(t1.FOR_DURATION     ,0)      FOR_DURATION           						--呼叫转移时长
+,nvl(t1.turn_dur_avg ,0)      FOR_DURATION_avg  							--近三月呼叫转移时长均值
+,nvl(t1.nums_bs_flow     ,0)  nums_bs_flow                --流量基站个数            
+,nvl(t1.nums_bs_flow_avg ,0)  nums_bs_flow_avg            --近3月月均流量基站个数       
+,nvl(t1.flow_bs_20_pp    ,0)  flow_bs_20_pp               --流量基站超过20个天数占比     
+,nvl(t1.flow_bs_20_pp_avg,0)  flow_bs_20_pp_avg           --近3月月均流量基站超过20个天数占比
+,nvl(t1.nums_bs_vc  ,0)       nums_bs_vc                 --语音基站个数            
+,nvl(t1.nums_bs_vc_avg,0 )    nums_bs_vc_avg             --近3月月均语音基站个数       
+,nvl(t1.vc_bs_20_pp	,0)     vc_bs_20_pp              --语音基站超过15个天数占比     
+,nvl(t1.vc_bs_20_pp_avg ,0) vc_bs_20_pp_avg           --近3月月均语音基站超过15个天数占比
+,nvl(t1.flow_days        ,0)     flow_days                  --流量通信天数         
+,nvl(t1.flow_days_avg    ,0)     flow_days_avg              --近3月月均流量通信天数    
+,nvl(t1.flows_diff_pp    ,0)     flows_diff_pp              --最高最低日流量差占比     
+,nvl(t1.flows_diff_pp_avg,0)     flows_diff_pp_avg          --近3月月均最高最低日流量差占比
+,nvl(t1.vc_days    ,0 )       vc_days                    --语音通信天数     
+,nvl(t1.vc_days_avg ,0)       vc_days_avg                --近3月月均语音通信天数
+,nvl(t1.nums_app,0)           nums_app                  --app个数          
+,nvl(t1.nums_app_avg,0)       nums_app_avg              --近3月月均app个数     
+,t1.if_yzf_user                 															--是否翼支付活跃用户      
+,t1.if_yzf_user_avg            																 --近3月是否翼支付活跃     
+,nvl(t1.flow_huango_user    ,0) flow_huango_user            --是否欢go活跃用户      
+,nvl(t1.flow_huango_user_avg,0) flow_huango_user_avg        --近3月是否欢go活跃     
+,nvl(t1.flow_edu_user       ,0) flow_edu_user               --是否教育类dpi活跃     
+,nvl(t1.flow_edu_user_avg   ,0) flow_edu_user_avg           --近3月是否教育类dpi活跃  
+,nvl(t1.flow_house_user     ,0) flow_house_user             --是否购房装修类dpi活跃   
+,nvl(t1.flow_house_user_avg ,0) flow_house_user_avg         --近3月是否购房装修类dpi活跃
+,nvl(t1.flow_mom_user       ,0) flow_mom_user               --是否母婴类dpi活跃     
+,nvl(t1.flow_mom_user_avg   ,0) flow_mom_user_avg           --近3月是否母婴类dpi活跃  
+,t1.if_search_user              															--是否搜索"副卡"关键字         
+,t1.if_search_user_avg          															--是否近3月搜索"副卡"关键字      
+,nvl(t1.nums_jwq         ,0) nums_jwq                   --交往圈个数         
+,nvl(t1.nums_jwq_avg     ,0) nums_jwq_avg               --近3月月均交往圈个数    
+,nvl(t1.jwq_fixed_pp     ,0) jwq_fixed_pp               --固网交往圈个数占比     
+,nvl(t1.jwq_fixed_pp_avg ,0) jwq_fixed_pp_avg           --近3月月均固网交往圈个数占比
+,nvl(t1.jwq_valid_pp     ,0) jwq_valid_pp               --有效交往圈个数占比     
+,nvl(t1.jwq_valid_pp_avg ,0) jwq_valid_pp_avg           --近3月月均有效交往圈个数占比
+,nvl(t1.nums_dx_long,0)       nums_dx_long               --定向长途个数
+,nvl(t1.nums_close_contact,0) nums_close_contact         --紧密联系人个数
+,nvl(t1.call_times,0)         call_times                 --本网客服主叫次数     
+,nvl(t1.call_times_avg,0)     call_times_avg             --近3月月均本网客服主叫次数
+,nvl(t1.nums_tousu      ,0)   nums_tousu                 --投诉次数     
+,nvl(t1.nums_tousu_avg ,0)   nums_tousu_avg             --近3月月均投诉次数
+,nvl(t1.if_undealed_list,0)   if_undealed_list           --是否存在未处理工单
+from ${db_name}.xyx_mubiao_zfk_main_201802 t1
+left join ${db_name}.TB_ZFK_NAME_HY_M  t2
+on t1.user_id = t2.subs_id and t2.cal_month =t1.op_time
+left join EDW_SHARE.S_TD_USER_360_$TX_MONTH  t3 
+on t3.user_id = t1.user_id             
+and t3.op_time = t1.op_time   
+;
+COMMIT;
+
+
+--3、70上预测201802月数据（SQL在脚本里面直接插入或者建表）
+--3.1、生成输入数据,导出文件名：bxl/pbk/lxj/lx4g_pre.txt，逗号间隔),修改tc_name('不限量','磅礴卡','乐享家','乐享4G')
+drop table ${db_name}.DSE_ZKF_MODEL_BXL_201802;
+create table ${db_name}.DSE_ZKF_MODEL_BXL_201802 compress as (
+SELECT	
+	SUBS_ID
+	,CASE	WHEN TRIM(ZK_MONTH) <> '非主副卡'	THEN 1 
+		ELSE			     0
+	END AS IF_ZHUKA
+	,P_AGE 			
+	,P_GENDER_ID 		
+	,LOCAL_FLAG 		
+	,chunjie_roam_days 	
+	,ronghe_flag 		
+	,cnet_user_nums1 		
+	,kd_user_nums1 		
+	,cnet_user_nums2 		
+	,kd_user_nums2 		
+	,if_jt_user 		
+	,month_contract_over 	
+	,pge_stall 		
+	,if_change_pge 		
+	,if_change_trmn 		
+	,CASE 	WHEN market_price IS NULL 	THEN 0 ELSE market_price END market_price
+	,CASE 	WHEN standby_type ='单卡' 	THEN 1
+      		WHEN standby_type ='单网单待' 	THEN 2 
+      		WHEN standby_type ='双卡' 	THEN 3  
+      		WHEN standby_type ='双网单待' 	THEN 4 
+      		WHEN standby_type ='双网双待' 	THEN 5
+      		ELSE			     0 
+      	END AS standby_type		
+	,BILL_FLAG 		
+	,chuz_nums 		
+	,user_credit_value 	
+	,MEMBERSHIP_LEVEL	 	
+	,YJDK_FLAG_nums 		
+	,YKDJ_FLAG_nums 		
+	,CONSUME_AMT 		
+	,consume_amt_avg 		
+	,income_dangwei_pp 	
+	,income_dangwei_pp_avg 	
+	,AGG_OWE_FEE 		
+	,owe_nums 		
+	,charge_times 		
+	,pay_nums 		
+	,roam_days 		
+	,roam_days_avg 		
+	,CALL_DURATION 		
+	,dur_avg 		
+	,CALLING_DURATION 		
+	,calling_dur_avg 		
+	,calling_pp 		
+	,calling_pp_avg 		
+	,roam_pp 		
+	,roam_pp_avg 		
+	,long_pp 		
+	,long_pp_avg 		
+	,flows 		
+	,flow_avg 		
+	,flow_satur_pp 		
+	,flow_satur_pp_avg 	
+	,flow_roam_pp 		
+	,flow_roam_pp_avg 		
+	,FOR_TIMES 		
+	,FOR_TIMES_avg 		
+	,FOR_DURATION 		
+	,FOR_DURATION_avg 		
+	,nums_bs_flow 		
+	,nums_bs_flow_avg 		
+	,flow_bs_20_pp 		
+	,flow_bs_20_pp_avg 	
+	,nums_bs_vc 		
+	,nums_bs_vc_avg 		
+	,vc_bs_20_pp 		
+	,vc_bs_20_pp_avg 		
+	,flow_days 		
+	,flow_days_avg 		
+	,flows_diff_pp 		
+	,flows_diff_pp_avg 	
+	,vc_days 		
+	,vc_days_avg 		
+	,nums_app 		
+	,nums_app_avg 		
+	,if_yzf_user 		
+	,if_yzf_user_avg 		
+	,flow_huango_user 		
+	,flow_huango_user_avg 	
+	,flow_edu_user 		
+	,flow_edu_user_avg 	
+	,flow_house_user 		
+	,flow_house_user_avg 	
+	,flow_mom_user 		
+	,flow_mom_user_avg	 	
+	,if_search_user 		
+	,if_search_user_avg 	
+	,nums_jwq 		
+	,nums_jwq_avg 	
+	,jwq_valid_pp 		
+	,jwq_valid_pp_avg 		
+	,nums_dx_long 		
+	,nums_close_contact 	
+	,call_times 		
+	,call_times_avg 		
+	,nums_tousu 		
+	,nums_tousu_avg 		
+	,if_undealed_list 
+FROM	${db_name}.xyx_mubiao_zfk_main_m
+WHERE	MAIN_PROD_ID2 = 10		AND CAL_MONTH = '$TX_MONTH'
+	AND TC_NAME NOT LIKE '%OCS%' 	AND TC_NAME NOT LIKE '%典藏版%'	--条件0
+	AND STAY_DUR > 3					--条件0：网龄大于3月
+	AND (P_AGE BETWEEN 18 AND 75 OR P_AGE = 0)		--条件1：年龄[18,75]或0
+	AND USER_STS_ID = 1				--条件2：状态在用
+	AND cert_type_name IN ('身份证', '工商营业执照')	--条件3：证件类型为身份证、工商营业执照
+	AND CONSUME_AMT > 0				--条件4：出账收入大于0
+	AND flows > 0				--条件5：流量大于0
+	AND (if_fuka_10M = 1 OR if_fuka_10M IS NULL)		--条件7：正样本副卡流量大于10M
+	AND (TRIM(FK_MONTH) = '非主副卡' OR TRIM(ZK_MONTH) <> '非主副卡')
+	AND TC_TYPE = '不限量'
+	)
+;
+
+
+
+--磅礴卡：
+drop table ${db_name}.DSE_ZKF_MODEL_PBK_201802;
+create table ${db_name}.DSE_ZKF_MODEL_PBK_201802 compress as (
+SELECT	
+	SUBS_ID
+	,CASE	WHEN TRIM(ZK_MONTH) <> '非主副卡'	THEN 1 
+		ELSE			     0
+	END AS IF_ZHUKA
+	,P_AGE 			
+	,P_GENDER_ID 		
+	,LOCAL_FLAG 		
+	,chunjie_roam_days 	
+	,ronghe_flag 		
+	,cnet_user_nums1 		
+	,kd_user_nums1 		
+	,cnet_user_nums2 		
+	,kd_user_nums2 		
+	,if_jt_user 		
+	,month_contract_over 	
+	,pge_stall 		
+	,if_change_pge 		
+	,if_change_trmn 		
+	,CASE 	WHEN market_price IS NULL 	THEN 0 ELSE market_price END market_price
+	,CASE 	WHEN standby_type ='单卡' 	THEN 1
+      		WHEN standby_type ='单网单待' 	THEN 2 
+      		WHEN standby_type ='双卡' 	THEN 3  
+      		WHEN standby_type ='双网单待' 	THEN 4 
+      		WHEN standby_type ='双网双待' 	THEN 5
+      		ELSE			     0 
+      	END AS standby_type		
+	,BILL_FLAG 		
+	,chuz_nums 		
+	,user_credit_value 	
+	,MEMBERSHIP_LEVEL	 	
+	,YJDK_FLAG_nums 		
+	,YKDJ_FLAG_nums 		
+	,CONSUME_AMT 		
+	,consume_amt_avg 		
+	,income_dangwei_pp 	
+	,income_dangwei_pp_avg 	
+	,AGG_OWE_FEE 		
+	,owe_nums 		
+	,charge_times 		
+	,pay_nums 		
+	,roam_days 		
+	,roam_days_avg 		
+	,CALL_DURATION 		
+	,dur_avg 		
+	,CALLING_DURATION 		
+	,calling_dur_avg 		
+	,calling_pp 		
+	,calling_pp_avg 		
+	,roam_pp 		
+	,roam_pp_avg 		
+	,long_pp 		
+	,long_pp_avg 		
+	,flows 		
+	,flow_avg 		
+	,flow_satur_pp 		
+	,flow_satur_pp_avg 	
+	,flow_roam_pp 		
+	,flow_roam_pp_avg 		
+	,FOR_TIMES 		
+	,FOR_TIMES_avg 		
+	,FOR_DURATION 		
+	,FOR_DURATION_avg 		
+	,nums_bs_flow 		
+	,nums_bs_flow_avg 		
+	,flow_bs_20_pp 		
+	,flow_bs_20_pp_avg 	
+	,nums_bs_vc 		
+	,nums_bs_vc_avg 		
+	,vc_bs_20_pp 		
+	,vc_bs_20_pp_avg 		
+	,flow_days 		
+	,flow_days_avg 		
+	,flows_diff_pp 		
+	,flows_diff_pp_avg 	
+	,vc_days 		
+	,vc_days_avg 		
+	,nums_app 		
+	,nums_app_avg 		
+	,if_yzf_user 		
+	,if_yzf_user_avg 		
+	,flow_huango_user 		
+	,flow_huango_user_avg 	
+	,flow_edu_user 		
+	,flow_edu_user_avg 	
+	,flow_house_user 		
+	,flow_house_user_avg 	
+	,flow_mom_user 		
+	,flow_mom_user_avg	 	
+	,if_search_user 		
+	,if_search_user_avg 	
+	,nums_jwq 		
+	,nums_jwq_avg 	
+	,jwq_valid_pp 		
+	,jwq_valid_pp_avg 		
+	,nums_dx_long 		
+	,nums_close_contact 	
+	,call_times 		
+	,call_times_avg 		
+	,nums_tousu 		
+	,nums_tousu_avg 		
+	,if_undealed_list 
+FROM	${db_name}.xyx_mubiao_zfk_main_m
+WHERE	MAIN_PROD_ID2 = 10		AND CAL_MONTH = '$TX_MONTH'
+	AND TC_NAME NOT LIKE '%OCS%' 	AND TC_NAME NOT LIKE '%典藏版%'	--条件0
+	AND STAY_DUR > 3					--条件0：网龄大于3月
+	AND (P_AGE BETWEEN 18 AND 75 OR P_AGE = 0)		--条件1：年龄[18,75]或0
+	AND USER_STS_ID = 1				--条件2：状态在用
+	AND cert_type_name IN ('身份证', '工商营业执照')	--条件3：证件类型为身份证、工商营业执照
+	AND CONSUME_AMT > 0				--条件4：出账收入大于0
+	AND flows > 0				--条件5：流量大于0
+	AND (if_fuka_10M = 1 OR if_fuka_10M IS NULL)		--条件7：正样本副卡流量大于10M
+	AND (TRIM(FK_MONTH) = '非主副卡' OR TRIM(ZK_MONTH) <> '非主副卡')
+	AND TC_TYPE = '磅礴卡'
+	)
+;
+
+
+
+--乐享家：
+drop table ${db_name}.DSE_ZKF_MODEL_LXJ_201802;
+create table ${db_name}.DSE_ZKF_MODEL_LXJ_201802 compress as (
+SELECT	
+	SUBS_ID
+	,CASE	WHEN TRIM(ZK_MONTH) <> '非主副卡'	THEN 1 
+		ELSE			     0
+	END AS IF_ZHUKA
+	,P_AGE 			
+	,P_GENDER_ID 		
+	,LOCAL_FLAG 		
+	,chunjie_roam_days 	
+	,ronghe_flag 		
+	,cnet_user_nums1 		
+	,kd_user_nums1 		
+	,cnet_user_nums2 		
+	,kd_user_nums2 		
+	,if_jt_user 		
+	,month_contract_over 	
+	,pge_stall 		
+	,if_change_pge 		
+	,if_change_trmn 		
+	,CASE 	WHEN market_price IS NULL 	THEN 0 ELSE market_price END market_price
+	,CASE 	WHEN standby_type ='单卡' 	THEN 1
+      		WHEN standby_type ='单网单待' 	THEN 2 
+      		WHEN standby_type ='双卡' 	THEN 3  
+      		WHEN standby_type ='双网单待' 	THEN 4 
+      		WHEN standby_type ='双网双待' 	THEN 5
+      		ELSE			     0 
+      	END AS standby_type		
+	,BILL_FLAG 		
+	,chuz_nums 		
+	,user_credit_value 	
+	,MEMBERSHIP_LEVEL	 	
+	,YJDK_FLAG_nums 		
+	,YKDJ_FLAG_nums 		
+	,CONSUME_AMT 		
+	,consume_amt_avg 		
+	,income_dangwei_pp 	
+	,income_dangwei_pp_avg 	
+	,AGG_OWE_FEE 		
+	,owe_nums 		
+	,charge_times 		
+	,pay_nums 		
+	,roam_days 		
+	,roam_days_avg 		
+	,CALL_DURATION 		
+	,dur_avg 		
+	,CALLING_DURATION 		
+	,calling_dur_avg 		
+	,calling_pp 		
+	,calling_pp_avg 		
+	,roam_pp 		
+	,roam_pp_avg 		
+	,long_pp 		
+	,long_pp_avg 		
+	,flows 		
+	,flow_avg 		
+	,flow_satur_pp 		
+	,flow_satur_pp_avg 	
+	,flow_roam_pp 		
+	,flow_roam_pp_avg 		
+	,FOR_TIMES 		
+	,FOR_TIMES_avg 		
+	,FOR_DURATION 		
+	,FOR_DURATION_avg 		
+	,nums_bs_flow 		
+	,nums_bs_flow_avg 		
+	,flow_bs_20_pp 		
+	,flow_bs_20_pp_avg 	
+	,nums_bs_vc 		
+	,nums_bs_vc_avg 		
+	,vc_bs_20_pp 		
+	,vc_bs_20_pp_avg 		
+	,flow_days 		
+	,flow_days_avg 		
+	,flows_diff_pp 		
+	,flows_diff_pp_avg 	
+	,vc_days 		
+	,vc_days_avg 		
+	,nums_app 		
+	,nums_app_avg 		
+	,if_yzf_user 		
+	,if_yzf_user_avg 		
+	,flow_huango_user 		
+	,flow_huango_user_avg 	
+	,flow_edu_user 		
+	,flow_edu_user_avg 	
+	,flow_house_user 		
+	,flow_house_user_avg 	
+	,flow_mom_user 		
+	,flow_mom_user_avg	 	
+	,if_search_user 		
+	,if_search_user_avg 	
+	,nums_jwq 		
+	,nums_jwq_avg 	
+	,jwq_valid_pp 		
+	,jwq_valid_pp_avg 		
+	,nums_dx_long 		
+	,nums_close_contact 	
+	,call_times 		
+	,call_times_avg 		
+	,nums_tousu 		
+	,nums_tousu_avg 		
+	,if_undealed_list 
+FROM	${db_name}.xyx_mubiao_zfk_main_m
+WHERE	MAIN_PROD_ID2 = 10		AND CAL_MONTH = '$TX_MONTH'
+	AND TC_NAME NOT LIKE '%OCS%' 	AND TC_NAME NOT LIKE '%典藏版%'	--条件0
+	AND STAY_DUR > 3					--条件0：网龄大于3月
+	AND (P_AGE BETWEEN 18 AND 75 OR P_AGE = 0)		--条件1：年龄[18,75]或0
+	AND USER_STS_ID = 1				--条件2：状态在用
+	AND cert_type_name IN ('身份证', '工商营业执照')	--条件3：证件类型为身份证、工商营业执照
+	AND CONSUME_AMT > 0				--条件4：出账收入大于0
+	AND flows > 0				--条件5：流量大于0
+	AND (if_fuka_10M = 1 OR if_fuka_10M IS NULL)		--条件7：正样本副卡流量大于10M
+	AND (TRIM(FK_MONTH) = '非主副卡' OR TRIM(ZK_MONTH) <> '非主副卡')
+	AND TC_TYPE = '乐享家'
+	)
+;
+
+--乐享4G：
+drop table ${db_name}.DSE_ZKF_MODEL_LX4G_201802;
+create table ${db_name}.DSE_ZKF_MODEL_LX4G_201802 compress as (
+SELECT	
+	SUBS_ID
+	,CASE	WHEN TRIM(ZK_MONTH) <> '非主副卡'	THEN 1 
+		ELSE			     0
+	END AS IF_ZHUKA
+	,P_AGE 			
+	,P_GENDER_ID 		
+	,LOCAL_FLAG 		
+	,chunjie_roam_days 	
+	,ronghe_flag 		
+	,cnet_user_nums1 		
+	,kd_user_nums1 		
+	,cnet_user_nums2 		
+	,kd_user_nums2 		
+	,if_jt_user 		
+	,month_contract_over 	
+	,pge_stall 		
+	,if_change_pge 		
+	,if_change_trmn 		
+	,CASE 	WHEN market_price IS NULL 	THEN 0 ELSE market_price END market_price
+	,CASE 	WHEN standby_type ='单卡' 	THEN 1
+      		WHEN standby_type ='单网单待' 	THEN 2 
+      		WHEN standby_type ='双卡' 	THEN 3  
+      		WHEN standby_type ='双网单待' 	THEN 4 
+      		WHEN standby_type ='双网双待' 	THEN 5
+      		ELSE			     0 
+      	END AS standby_type		
+	,BILL_FLAG 		
+	,chuz_nums 		
+	,user_credit_value 	
+	,MEMBERSHIP_LEVEL	 	
+	,YJDK_FLAG_nums 		
+	,YKDJ_FLAG_nums 		
+	,CONSUME_AMT 		
+	,consume_amt_avg 		
+	,income_dangwei_pp 	
+	,income_dangwei_pp_avg 	
+	,AGG_OWE_FEE 		
+	,owe_nums 		
+	,charge_times 		
+	,pay_nums 		
+	,roam_days 		
+	,roam_days_avg 		
+	,CALL_DURATION 		
+	,dur_avg 		
+	,CALLING_DURATION 		
+	,calling_dur_avg 		
+	,calling_pp 		
+	,calling_pp_avg 		
+	,roam_pp 		
+	,roam_pp_avg 		
+	,long_pp 		
+	,long_pp_avg 		
+	,flows 		
+	,flow_avg 		
+	,flow_satur_pp 		
+	,flow_satur_pp_avg 	
+	,flow_roam_pp 		
+	,flow_roam_pp_avg 		
+	,FOR_TIMES 		
+	,FOR_TIMES_avg 		
+	,FOR_DURATION 		
+	,FOR_DURATION_avg 		
+	,nums_bs_flow 		
+	,nums_bs_flow_avg 		
+	,flow_bs_20_pp 		
+	,flow_bs_20_pp_avg 	
+	,nums_bs_vc 		
+	,nums_bs_vc_avg 		
+	,vc_bs_20_pp 		
+	,vc_bs_20_pp_avg 		
+	,flow_days 		
+	,flow_days_avg 		
+	,flows_diff_pp 		
+	,flows_diff_pp_avg 	
+	,vc_days 		
+	,vc_days_avg 		
+	,nums_app 		
+	,nums_app_avg 		
+	,if_yzf_user 		
+	,if_yzf_user_avg 		
+	,flow_huango_user 		
+	,flow_huango_user_avg 	
+	,flow_edu_user 		
+	,flow_edu_user_avg 	
+	,flow_house_user 		
+	,flow_house_user_avg 	
+	,flow_mom_user 		
+	,flow_mom_user_avg	 	
+	,if_search_user 		
+	,if_search_user_avg 	
+	,nums_jwq 		
+	,nums_jwq_avg 	
+	,jwq_valid_pp 		
+	,jwq_valid_pp_avg 		
+	,nums_dx_long 		
+	,nums_close_contact 	
+	,call_times 		
+	,call_times_avg 		
+	,nums_tousu 		
+	,nums_tousu_avg 		
+	,if_undealed_list 
+FROM	${db_name}.xyx_mubiao_zfk_main_m
+WHERE	MAIN_PROD_ID2 = 10		AND CAL_MONTH = '$TX_MONTH'
+	AND TC_NAME NOT LIKE '%OCS%' 	AND TC_NAME NOT LIKE '%典藏版%'	--条件0
+	AND STAY_DUR > 3					--条件0：网龄大于3月
+	AND (P_AGE BETWEEN 18 AND 75 OR P_AGE = 0)		--条件1：年龄[18,75]或0
+	AND USER_STS_ID = 1				--条件2：状态在用
+	AND cert_type_name IN ('身份证', '工商营业执照')	--条件3：证件类型为身份证、工商营业执照
+	AND CONSUME_AMT > 0				--条件4：出账收入大于0
+	AND flows > 0				--条件5：流量大于0
+	AND (if_fuka_10M = 1 OR if_fuka_10M IS NULL)		--条件7：正样本副卡流量大于10M
+	AND (TRIM(FK_MONTH) = '非主副卡' OR TRIM(ZK_MONTH) <> '非主副卡')
+	AND TC_TYPE = '乐享4G'
+	)
+;
+alter session disable parallel dml;
+
+--3.2、模型预测结果入库
+DROP TABLE 	${db_name}.DRT_ZFK_MODEL_RES_201802;
+CREATE TABLE ${db_name}.DRT_ZFK_MODEL_RES_201802 
+(
+      SUBS_ID 	number(16,0)
+      ,IF_ZHUKA 	VARCHAR2(1) 	
+      ,PROB_0	number(6,4)
+      ,PROB_1	number(6,4)
+) compress 
+;
+ 
+	 -------SQL 结束------------------------------------
+	 exit;
+eof
+		};
+	 print $result;
+}
+
+
+######################################################################
+# Connect to DB by odbc method
+######################################################################
+sub DBconnect()
+{
+    my $connectString;
+    my $DSOURCE = ${AUTO_DSN};
+    my $OS   = $^O;
+    $OS =~ tr [A-Z][a-z];
+    if ( $OS eq "mswin32" || $OS eq "aix" || $OS eq "hpux" || $OS eq "linux") {
+        $connectString = "dbi:Oracle:${DSOURCE}";
+    }else{
+        $connectString = "dbi:Oracle:${DSOURCE}";
+    }
+    #print "\$connectString is $connectString\n";
+    open(LOGONFILE_H, "${LOGON_FILE}");
+    my $LOGON_STR = <LOGONFILE_H>;
+    close(LOGONFILE_H);
+    $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+    my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+    chop($userpw);
+    my ($USER, $PASSWD) = split(',' , $userpw);
+    #print "\$USER is $USER\n";
+    #print "\$PASSWD is $PASSWD\n";
+    my $dbh = DBI->connect($connectString,$USER,$PASSWD);
+    return $dbh;
+}
+
+
+sub DBDisconnect
+{
+   my ($dbh) = @_;
+
+    if(defined($dbh)){
+        $dbh->disconnect();
+        print "数据库成功连接\n";
+    }else{
+        print "断开数据库连接：数据库连接为空\n";
+    }
+}
+
+# main function
+###########################################################################
+sub main
+{
+   my $ret;
+   open(LOGONFILE_H, "${LOGON_FILE}");
+   $LOGON_STR = <LOGONFILE_H>;
+   close(LOGONFILE_H);
+   my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+   chop($userpw);
+   my ($USER, $PASSWD) = split(',' , $userpw);
+   
+   # Get the decoded logon string
+   $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+
+   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time());
+   $year += 1900;
+   $mon = sprintf("%02d", $mon + 1);
+   $mday = sprintf("%02d", $mday);
+   my $today = "${year}${mon}${mday}";
+
+   ####the date process function
+   $dbh=DBconnect();	#Connect DB
+   
+   #取当前的天，日+1，月数-1
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD'),'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY=$sth->fetchrow();
+   $sth->finish();
+   $THIS_YEAR_MON1=substr($DATE_TODAY,0,4)."01";
+   $THIS_YEAR_FIRSTDAY=substr($DATE_TODAY,0,4)."0101";
+   print "DATE_TODAY is $DATE_TODAY\n";
+
+   #取头一天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-1,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L1=$sth->fetchrow();
+   $sth->finish();
+   print "DATE_TODAY_L1 is $DATE_TODAY_L1    \n";
+
+   #取头二天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-2,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L2=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L2    \n";
+
+   #取头三天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-3,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L3=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L3    \n";
+
+   #取头四天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-4,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L4=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L4    \n";
+
+   #取头五天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-5,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L5=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L5    \n";
+
+   #取头六天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-6,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L6=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L6    \n";
+   
+   #取本月的第一天
+   my $sqlText ="select substr('$DATE_TODAY',1,6)||'01' from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONTH_FIRSTDAY    \n";
+ 
+   #取本月的最后一天
+   my $sqlText ="select to_char(add_months(to_date(substr('$DATE_TODAY',1,6)||'01','YYYYMMDD'),1) - 1,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_LASTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONTH_LASTDAY    \n";
+
+  #取本月的char的标识方法
+   my $sqlText ="select substr('$DATE_TODAY',1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $TX_MONTH=$sth->fetchrow();
+   $sth->finish();
+   #print "$TX_MONTH    \n";
+
+   #取当月本天
+   my $sqlText ="select to_char(add_months(to_date(substr('$DATE_TODAY',1,6)||'01','YYYYMMDD'),-1),'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "MONTH_TODAY    \n";
+
+  #取上月的本天
+   my $sqlText ="select to_char(add_months(to_date('$DATE_TODAY','YYYYMMDD'),-2) ,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_TODAY    \n";
+
+   #取上月的第一天
+   my $sqlText ="select substr('$LAST1MONTH_TODAY',1,6)||'01' from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_FIRSTDAY    \n";
+
+   #取上月的最后一天
+   my $sqlText ="select to_char(add_months(to_date(substr('$LAST1MONTH_TODAY',1,6)||'01','YYYYMMDD'),1) - 1,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_LASTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_LASTDAY    \n";
+
+  #取上月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$DATE_TODAY' ,'YYYYMMDD'),-1),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_CHAR    \n";
+
+   #取上2月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$MONTH_TODAY' ,'YYYYMMDD'),-1),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST2MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST2MONTH_CHAR    \n";
+
+   #取上3月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$MONTH_TODAY' ,'YYYYMMDD'),-2),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST3MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+
+   #取上4月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$LAST1MONTH_TODAY' ,'YYYYMMDD'),-3),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST4MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST4MONTH_CHAR    \n";
+
+   #取上5月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$LAST1MONTH_TODAY' ,'YYYYMMDD'),-4),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST5MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST5MONTH_CHAR    \n";
+
+   #取下月的本天
+   my $sqlText ="select to_char(add_months(to_date('$DATE_TODAY','YYYYMMDD'),1),'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_TODAY    \n";
+
+   #取下月的第一天
+   my $sqlText ="select substr('$NEXT1MONTH_TODAY',1,6)||'01' from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_FIRSTDAY    \n";
+
+  #取下月的最后一天
+   my $sqlText ="select to_char((add_months(to_date(substr('$NEXT1MONTH_TODAY',1,6)||'01','YYYYMMDD'),1) - 1),'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_LASTTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_LASTTDAY    \n";
+
+   #取下月的char的标识方法
+   my $sqlText ="select substr('$NEXT1MONTH_TODAY',1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_CHAR    \n";
+
+   #取下2月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$NEXT1MONTH_TODAY','YYYYMMDD'),1),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT2MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT2MONTH_CHAR    \n";
+
+   #取下3月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$NEXT1MONTH_TODAY','YYYYMMDD'),2),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT3MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT3MONTH_CHAR    \n";
+#
+#   #取当年天数的方法
+#   my $sqlText ="SELECT DAY_OF_YEAR FROM SYS_CALENDAR.CALENDAR WHERE CALENDAR_DATE=CAST(SUBSTR('$TX_MONTH',1,4)||'1231' AS DATE FORMAT 'YYYYMMDD')";
+#   my $sth = $dbh->prepare($sqlText);
+#   $sth->execute();
+#   $YEARDAYNUM=$sth->fetchrow();
+#   $sth->finish();
+#
+   #取当月天数的方法
+   my $sqlText ="select substr('$MONTH_LASTDAY',7,2) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONDAYNUM=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONDAYNUM    \n";            }###            }###
+
+   DBDisconnect($dbh);	#Disconnect DB
+
+   # Call bteq command to load data
+   $ret = run_bteq_command();
+   return $ret;
+}
+
+################################################################
+# program section
+
+# To see if there is one parameter,
+# if there is no parameter, exit program
+if ( $#ARGV < 0 ) {
+   exit(1);
+}
+
+# Get the first argument
+$CONTROL_FILE = $ARGV[0];
+
+$TX_DATE = substr(${CONTROL_FILE},length(${CONTROL_FILE})-8, 8);
+if ( substr(${CONTROL_FILE}, length(${CONTROL_FILE})-3, 3) == 'dir' ) {
+    $TX_DATE = substr(${CONTROL_FILE},length(${CONTROL_FILE})-12, 8);
+};
+print "TX_DATE is $TX_DATE\n";
+print "CONTROL_FILE is $CONTROL_FILE\n";
+
+#get provId,to decide what source table or target table is
+$PROV = substr($CONTROL_FILE,(index($CONTROL_FILE,'_')+2),3);
+print "provId is $PROV\n";
+
+open(STDERR, ">&STDOUT");
+my $ret = main();
+if($ret eq 1){
+    $ret = 0;
+}else{
+    $ret = 1;
+}
+exit($ret);

@@ -1,0 +1,150 @@
+﻿#!/usr/bin/perl
+#将数据表中记录按行打印导出，速度上比fastexport慢，但是没有了总字段长度的限制，比较灵活
+use strict; # Declare using Perl strict syntax
+use DBI;    # Declare using Perl DBI syntax
+
+
+my $AUTO_HOME = $ENV{"AUTO_HOME"};
+my $AUTO_DATA = "${AUTO_HOME}/DATA";
+my $AUTO_LOG  = "${AUTO_HOME}/LOG";
+my $AUTO_DSN  = $ENV{"AUTO_DSN"};
+my $CDEDB     = $ENV{"AUTO_DSCDEDB"};
+my $CDRDB     = $ENV{"AUTO_DSCDRDB"};
+my $TEMPDB    = $ENV{"AUTO_DSTEMPDB"};
+my $PVIEWDB   = $ENV{"AUTO_DSPVIEWDB"};
+my $PDATADB   = $ENV{"AUTO_DSPDATADB"};
+my $PMIDDB    = $ENV{"AUTO_DSMIDDB"};
+my $PAPPDB    = $ENV{"AUTO_DSPAPPDB"};
+my $SDATADB   = $ENV{"AUTO_DSSDATADB"};
+
+  
+#if ( $#ARGV < 0 ) {
+#   print " Please input Date \n";
+#  exit(1);
+#}
+
+my $CONTROL_FILE = $ARGV[0];
+my $TX_DATE = substr(${CONTROL_FILE},length(${CONTROL_FILE})-8, 8);
+my $TX_MONTH = substr(${CONTROL_FILE},length(${CONTROL_FILE})-8, 6);
+my $LOGON_STR;
+my $result;
+my $LOGON_FILE = "${AUTO_HOME}/etc/LOGON_ETL";
+
+#######################定义分隔符
+my $dispart=",";
+#######################定义导出文件位置和名称
+my $FILENAME = "/etldata/yuanxm/subCard/sourceData/pbk_pre"."$TX_DATE".'.txt';
+my $FILENAME_GBK = "/etldata/yuanxm/subCard/sourceData/pbk_pre111"."$TX_DATE".'.txt';
+
+
+
+open(STDERR, ">&STDOUT");
+
+my $dbh = DBconnect();
+
+sub run_export_command
+{
+#取出数据，将数据按行打印	
+	my $sqlstr ="SELECT	* from PDATA.DSE_ZKF_MODEL_PBK_201802";
+	my $sth = $dbh->prepare($sqlstr);
+	
+	unless($sth){
+		print STDERR "*** ERROR *** - Unable to prepare statement for $sqlstr\n";
+        return -1; 
+	}
+	$sth->execute();
+	my @row;
+	my $linecount = 0;
+	my $char_len=0;
+
+	open(TARGET, ">$FILENAME" );
+	
+	print "\n\n开始导出表 pdata.DSE_ZKF_MODEL_PBK_201802 中数据:\n";
+	while(@row = ($sth->fetchrow())){
+		my $i=0;
+		my $rowl=scalar @row; #获取数组元素个数
+		my $lines=$row[$i++];
+		while($i<$rowl){
+			$lines .= "$dispart$row[$i++]";
+		}
+		
+		#$lines =~s/(\s)+//g;
+		print TARGET $lines;
+		print TARGET "\n";
+		$linecount++;
+		
+		if($linecount%10000==0){
+			 print "$linecount条记录...\n";
+		}
+		
+	};
+	if($linecount==0){
+		print "导出表中没有数据.\n";
+	}else{
+		print "成功导出数据到 $FILENAME，记录数 $linecount \n";
+	}
+	
+	close(TARGET);
+
+	$sth->finish();
+	
+	return 0;
+}
+
+
+sub DBconnect()
+{
+    my $connectString;
+    my $DSOURCE = ${AUTO_DSN};
+    my $OS   = $^O;
+    $OS =~ tr [A-Z][a-z];
+    if ( $OS eq "mswin32" || $OS eq "aix" || $OS eq "hpux" || $OS eq "linux") {
+        $connectString = "dbi:ODBC:${DSOURCE}";
+    }else{
+        $connectString = "dbi:Teradata:${DSOURCE}";
+
+    }
+
+    open(LOGONFILE_H, "${LOGON_FILE}");
+    my $LOGON_STR = <LOGONFILE_H>;
+    close(LOGONFILE_H);
+    $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+    my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+    chop($userpw);
+    my ($USER, $PASSWD) = split(',' , $userpw);
+    print "\$connectString is $connectString\n";
+    my $dbh = DBI->connect($connectString, $USER, $PASSWD);
+    return $dbh;
+}
+
+
+sub DBDisconnect
+{
+   my ($dbh) = @_;
+
+    if(defined($dbh)){
+        $dbh->disconnect();
+        print "数据库成功连接\n";
+    }else{
+        print "断开数据库连接：数据库连接为空\n";
+    }
+}
+
+
+sub main()
+{
+	open(LOGONFILE_H, "${LOGON_FILE}") or die "Can't open LOGON_FILE!";
+	$LOGON_STR = <LOGONFILE_H>;
+	close(LOGONFILE_H);
+	$LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+
+	my $BTEQCMD = run_export_command(); 
+	$result = system "iconv -f GBK -c $FILENAME > $FILENAME_GBK";
+	return $BTEQCMD;
+
+}
+
+my $ret= main();
+DBDisconnect($dbh);
+
+exit($ret);

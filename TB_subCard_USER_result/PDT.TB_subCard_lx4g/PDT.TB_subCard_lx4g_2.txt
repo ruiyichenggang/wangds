@@ -1,0 +1,305 @@
+#!/usr/bin/perl
+# BTEQ script in Perl, 源数据加载任务 
+# Script File  : ctbj_wid_fld0100.pl
+# Author: Zhu Maosheng NCR China 2004-03-24
+# Modify by ln , 2014-5-13 11:15:39
+
+use strict; # Declare using Perl strict syntax
+use DBI;
+
+#
+# If you are using other Perl's package, declare here
+#
+
+######################################################################
+# Variable Section
+my $TxDate=$ENV{"TxDate"};
+my $AUTO_HOME = $ENV{"AUTO_HOME"};
+my $YUNETL_TD = $ENV{"YUNETL_TD"};
+my $AUTO_DATA = "${YUNETL_TD}/data";
+my $AUTO_LOG  = "${YUNETL_TD}/LOG";
+my $LOGDIR  = "";
+my $LOGDB = $ENV{"AUTO_LOGDB2"};
+#my $TEMPDB = $ENV{"AUTO_TEMPDB2"};
+#if ( !defined($TEMPDB) ) {
+#     $TEMPDB = "ptemp2";
+#}
+my $TARGETDB = "SDATA";
+
+my $LOGON_STR;
+my $LOGON_FILE = "${AUTO_HOME}/etc/LOGON_ETL";
+my $controlfile;
+my $interface;
+
+my $TBR_FILE = "";
+my $tablename = "";
+my $errortb;
+my ($map_cols, $cols, $cols_V);
+my $DirectoryPath = "$YUNETL_TD/data/process/";
+my $tdpid = $ENV{"AUTO_DSN"};
+
+######################################################################
+#
+sub DBconnect()
+{
+    my $connectString;
+
+    my $DSOURCE = $ENV{"AUTO_DSN"};
+    my $OS   = $^O;
+    $OS =~ tr [A-Z][a-z];
+    if ( $OS eq "mswin32" || $OS eq "aix" || $OS eq "hpux" || $OS eq "linux" ) {
+        $connectString = "dbi:ODBC:${DSOURCE}";
+    }else{
+        $connectString = "dbi:Teradata:${DSOURCE}";
+    }
+    my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+    chop($userpw);
+    my ($USER, $PASSWD) = split(',' , $userpw);
+    print("connectString is $connectString....\n");
+    my $dbh = DBI->connect($connectString, $USER, $PASSWD);
+    return $dbh;
+}
+
+sub DBDisconnect
+{
+   my ($dbh) = @_;
+
+    if(defined($dbh)){
+        $dbh->disconnect();
+        print "断开数据库连接\n";
+    }else{
+        print "断开数据库连接：数据库连接为空\n";
+    }
+}
+
+#####################################################################
+#record inteface job
+sub job_status
+{
+    my ($datafile, $status) = @_;
+    
+    my $dbh = DBconnect();
+    my $ETLDB = $ENV{"AUTO_DB"};
+    if ( !defined($ETLDB) ) {
+        $ETLDB = "dwETL";
+    }
+    #one control file sample :dir.s_vc_m20160601
+    my $TX_DATE = $TxDate;
+    my $UNIT = $interface;
+    print "TX_DATE is $TxDate...\n";
+    print "UNIT is $UNIT...\n";
+    
+    my $sql="INSERT INTO ${ETLDB}.tb_etl_status(deal_time, data_date,interface_job,file_type_code, file_name," .
+    		"checkpoint_id, status )\n" .
+    	    "VALUES(CURRENT_TIMESTAMP, '$TX_DATE', '$UNIT', '', '$datafile','04', '$status') ";
+       my $sth = $dbh->do($sql);
+    $dbh->disconnect();
+    
+    return 0;	
+}
+
+######################################################################
+#Map the column's name and column's type
+sub get_map
+{
+    my $STABLE = ${tablename};
+    my $dbh = DBconnect();
+    my $sqlstr =<<SQL_END;
+    SELECT columnname,  columnid, 
+    CASE WHEN columntype IN ('CV','CF') THEN columnlength 
+         WHEN columntype = 'DA' THEN 8
+         WHEN columntype='TS' THEN 30
+         WHEN columntype IN ('I','I1','I2') AND substr(columnformat,1,1)='9' THEN characters(trim(columnformat))
+         WHEN columntype IN ('I') AND substr(columnformat,1,1)<>'9' THEN 50
+         WHEN columntype='D' THEN 50 END charlen ,
+    columntype||trim(cast(charlen as char(5)) ),
+    'VARCHAR('||trim(cast(charlen as char(5)) )||')' mapcol
+    FROM dbc.columnsv
+    WHERE databasename='$TARGETDB' AND tablename='$STABLE'
+    order by columnid
+SQL_END
+    
+    print("sqlstr:$sqlstr...\n");
+	   my $sth = $dbh->prepare($sqlstr);
+	   unless($sth){
+		    print STDERR "*** ERROR *** - Unable to prepare statement for $sqlstr\n";
+      return -1;
+	   }
+    $sth->execute();
+    my @recordset;
+    $map_cols = "";$cols = ""; $cols_V = "";
+    my $map_info="";
+    my $linecount = 0;
+    while(@recordset = ($sth->fetchrow())){
+        if(0 == $linecount){
+            $map_cols =  $map_cols."\t$recordset[0]\t($recordset[4])\n";
+            $cols = $cols . "\t$recordset[0]\n";
+            $cols_V = $cols_V."\t:$recordset[0]\n";
+            $map_info = $map_info . "$recordset[3]";
+        }else{
+            $map_cols =  $map_cols."\t,$recordset[0]\t($recordset[4])\n";
+            $cols = $cols . "\t,$recordset[0]\n";
+            $cols_V = $cols_V."\t,:$recordset[0]\n";
+            $map_info = $map_info . "\t$recordset[3]";
+        }
+        $linecount++;
+    };
+    $sth->finish();
+    $dbh->disconnect();
+    #$ENV{"AUTO_MAP_INFO"} = $map_info;
+    print("map_cols:$map_cols\ncols:$cols\ncols_V:$cols_V\n");
+    return 1;
+}
+
+######################################################################
+# Fastload function
+sub run_fastload_command
+{
+    my ($datafile, $endoffile) = @_;
+    
+    my $END_LOADING_STR;
+    
+    if ( $endoffile == 1 ) {
+        $END_LOADING_STR = "END LOADING;";
+    } else {
+        $END_LOADING_STR = "";
+    }
+    job_status($datafile, '2');
+    
+    #$ENV{"AUTO_DATA_FILE"} ="$AUTO_DATA/process/$datafile";
+    my $maxrows;
+    #my $maxrows = `wc -l $AUTO_DATA/process/$datafile`;
+    #$maxrows--;
+    if (!defined($maxrows) ) {
+        $maxrows = "";
+     } else {
+        $maxrows = "THRU $maxrows";
+     }
+    print "maxrows is $maxrows...";
+    
+    # Try to invoke fastload utility through pipe
+    my $rc = open(FASTLOAD, "| fastload -t 2");
+    unless ($rc) {
+        print "Could not invoke fastload utility\n";
+        return -1;
+    }
+    
+    ### Below are the fastload scripts ###
+    print FASTLOAD <<ENDOFINPUT;
+SESSIONS 8;
+
+ERRLIMIT 100;
+${LOGON_STR}
+DATABASE ${TARGETDB};
+BEGIN LOADING $tablename ERRORFILES ${errortb}_E1,${errortb}_E2;
+
+SET RECORD VARTEXT "" DISPLAY_ERRORS NOSTOP;
+
+DEFINE
+$map_cols
+FILE=${DirectoryPath}${datafile};
+
+RECORD 1 $maxrows;
+
+INSERT INTO ${TARGETDB}.$tablename(
+$cols)
+VALUES (
+$cols_V);
+
+$END_LOADING_STR
+
+LOGOFF;
+ENDOFINPUT
+
+    ### End of fastload script ###
+    close(FASTLOAD);
+    
+    my $RET_CODE = $? >> 8;
+    job_status($datafile, ($RET_CODE ==0) ? '0' : '1');
+    
+    return $RET_CODE;
+}
+######################################################################
+# main function
+sub main
+{
+    print "begin main\n";
+    my $ret;
+    # Open control file
+    open(CTRLFILE_H, "${DirectoryPath}${controlfile}");
+    
+    # Get all data files
+    my @fileList = <CTRLFILE_H>;
+    
+    # Close control file
+    close(CTRLFILE_H);
+    
+    my $endoffile = 0;
+    my $totalfile = $#fileList;
+    print "totalfile is :$totalfile\n";
+    my @fields;
+    my $datafile;
+    
+    # To process all of data files in control file
+    for (my $i = 0; $i <= $totalfile; $i++) {
+        if ($i == $totalfile) {
+           $endoffile = 1;
+        }
+        
+        $datafile = $fileList[$i];
+        print "load file :$datafile\n";
+        chomp($datafile);
+        @fields = split(/\s+/, $datafile);
+        
+        # Call fastload command to load data
+        $ret = run_fastload_command($fields[0], $endoffile);
+        
+        if ( $ret == 8 || $ret == 12 ) {
+            last;
+        }
+    }
+    
+    return $ret;
+}
+
+######################################################################
+# program section
+
+# To see if there is one parameter,
+# if there is no parameter, exit program
+if ( $#ARGV < 0 ) {
+    exit(1);
+}
+
+# Get the first argument as control file
+$controlfile= $ARGV[0];
+
+#one control file sample :SDT_D_PROD_M_20140531.dir
+
+$tablename =substr($controlfile,4);
+$tablename =~ tr [a-z][A-Z];
+print("tablename is $tablename...\n");
+
+$errortb = $tablename;
+print("errortable is $errortb\n");
+
+my $tmpfile = substr($controlfile,4);
+$interface = substr($tmpfile,0,length($tmpfile)-8);
+$interface =~ tr[a-z][A-Z];
+print("tmpfile is $tmpfile...\n");
+print("interface is $interface...\n");
+
+#get logon string
+open(LOGONFILE_H, "${LOGON_FILE}");
+$LOGON_STR = <LOGONFILE_H>;
+close(LOGONFILE_H);
+$LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+open(STDERR, ">&STDOUT");
+
+my $retvalue = get_map();
+print "retvalue is $retvalue\n";
+if ($retvalue < 0) {
+	exit(1);
+};
+my $ret = main();
+exit($ret);

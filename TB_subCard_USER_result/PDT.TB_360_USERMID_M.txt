@@ -1,0 +1,1479 @@
+﻿#!/usr/bin/perl
+######################################################################
+# BTEQ script in Perl, generate by Script Wizard
+# Date Time        : 2017-2-18 16:59:49
+# Target Table     : pdata.new4Guser
+# Script File      : tb_4GNEW_info_m0500.pl
+# Interface Name   : 每日新增4G用户转化明细表
+# Refresh Frequency: DAILY
+# Refresh Mode     : 增量
+# Authors          :
+# Version Info     : 1.0
+# Source Table     : SDATA.TB_360_SUBS_INFO_D
+######################################################################
+use strict; # Declare using Perl strict syntax
+use DBI; #Declare using Perl DBI syntax
+######################################################################
+# Variable Section
+
+my $AUTO_HOME = "$ENV{AUTO_HOME}";
+my $AUTO_DSN = "$ENV{AUTO_DSN}";
+
+my $LOGON_STR;
+my $LOGON_FILE = "${AUTO_HOME}/etc/LOGON_ETL";
+my $CONTROL_FILE = "";
+my $db_name = "$ENV{db_name}";
+
+my $dbh="";
+my $PROV="";
+my $TX_DATE = "";      #交易日 格式YYYYMMDD
+
+###当前日期是否是星期日 1:是
+my $ISSUNDAY_FLAG = "";
+my $USER;
+my $PASSWD;
+
+###当年天数   当月天数
+my $YEARDAYNUM="";
+my $MONDAYNUM="";
+
+my $TX_DATE = "";      #交易日 格式YYYYMMDD
+
+##当天，本月业务日期,本月第1天,本月最后1天  格式'YYYYMMDD'
+my $DATE_TODAY="";
+my $MONTH_TODAY="";
+my $MONTH_FIRSTDAY="";
+my $MONTH_LASTDAY="";
+
+###本月标示  格式'YYYYMM'
+my $TX_MONTH = "";
+
+
+###上月第1天,上月最后1天,上月当天 格式'YYYYMMDD'
+my $LAST1MONTH_FIRSTDAY="";
+my $LAST1MONTH_LASTDAY="";
+my $LAST1MONTH_TODAY="";
+
+#本年第一天 格式'YYYYMMDD'
+my $THIS_YEAR_FIRSTDAY="";
+
+#上年第一天,上年当天,上年最后一天 格式'YYYYMMDD'
+my $LASTYEAR_TODAY="";
+my $LASTYEAR_FIRSTDAY="";
+my $LASTYEAR_LASTDAY="";
+
+###下月第1天,下月最后1天,下月当天 格式'YYYYMMDD'
+my $NEXT1MONTH_FIRSTDAY="";
+my $NEXT1MONTH_LASTTDAY="";
+my $NEXT1MONTH_TODAY="";
+
+
+###下1月到下3月 格式'YYYYMM'
+my $NEXT1MONTH_CHAR="";
+my $NEXT2MONTH_CHAR="";
+my $NEXT3MONTH_CHAR="";
+
+###上1月到上5月 格式'YYYYMM'
+my $LAST1MONTH_CHAR="";
+my $LAST2MONTH_CHAR="";
+my $LAST3MONTH_CHAR="";
+my $LAST4MONTH_CHAR="";
+my $LAST5MONTH_CHAR="";
+
+###本年1月到上12月 格式'YYYYMM'
+my $THIS_YEAR_MON1 = "";
+
+
+###上年1月到上12月 格式'YYYYMM'
+my $LASTYEAR_1MONTH="";
+my $LASTYEAR_12MONTH="";
+
+###上1天到上6天 格式'YYYYMMDD'
+my $DATE_TODAY_L1="";
+my $DATE_TODAY_L2="";
+my $DATE_TODAY_L3="";
+my $DATE_TODAY_L4="";
+my $DATE_TODAY_L5="";
+my $DATE_TODAY_L6="";
+
+
+###当前日期是否是星期日 1:是
+my $ISSUNDAY_FLAG = "";
+
+######################################################################
+# BTEQ function
+sub run_bteq_command
+{
+	 open(LOGONFILE_H, "${LOGON_FILE}");
+   $LOGON_STR = <LOGONFILE_H>;
+   close(LOGONFILE_H);
+   $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+   my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+   chop($userpw);
+   my ($USER, $PASSWD) = split(',' , $userpw);
+
+	 my $connect_string = "$USER\/$PASSWD\@$AUTO_DSN";	 
+ 
+	 my $sqlplus_settings = 'set linesize 300;';
+	 my $result = qx { sqlplus $connect_string<<eof
+	 $sqlplus_settings
+	 -------SQL 开始-----------------------------------
+alter session force parallel dml parallel 8;
+--证件下移动和宽带号码数量
+drop table ${db_name}.TEMP_CERTUSERNUM_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_CERTUSERNUM_$TX_MONTH compress as (
+select	MD5_CERT_NUMBER
+	,count(distinct case when MAIN_PROD_ID2 in ('10','11') 	then USER_ID else null end)   CERT_MOBILE_NUM
+	,count(distinct case when MAIN_PROD_ID2 = '21' 		then USER_ID else null end)   CERT_FIX_NUM
+from 	EDW_SHARE.S_TD_USER_360_$TX_MONTH
+where OP_TIME = $TX_MONTH	AND INNET_FLAG = 1	AND MD5_CERT_NUMBER IS NOT NULL
+group by 	MD5_CERT_NUMBER
+);
+
+
+
+
+--**用户对应证件下移动和宽带号码数量【最终关联】
+drop table 	${db_name}.TEMP_CERTUSERNUM2_$TX_MONTH;
+
+CREATE TABLE ${db_name}.TEMP_CERTUSERNUM2_$TX_MONTH compress as (
+select	T1.USER_ID
+	,T2.MD5_CERT_NUMBER
+	,T2.CERT_MOBILE_NUM
+	,T2.CERT_FIX_NUM
+from	EDW_SHARE.S_TD_USER_360_$TX_MONTH T1
+LEFT JOIN	${db_name}.TEMP_CERTUSERNUM_$TX_MONTH	T2
+ON	T1.MD5_CERT_NUMBER = T2.MD5_CERT_NUMBER
+WHERE T1.OP_TIME = $TX_MONTH	AND T1.INNET_FLAG = 1	
+and T1.MAIN_PROD_ID2  in (10,11,12,13)
+group by 	T1.USER_ID
+	,T2.MD5_CERT_NUMBER
+	,T2.CERT_MOBILE_NUM
+	,T2.CERT_FIX_NUM
+);
+
+
+
+
+---客户下移动和宽带号码数量
+drop table 	${db_name}.TEMP_CUSTUSERNUM_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_CUSTUSERNUM_$TX_MONTH compress as (
+select	CUST_ID
+	,count(distinct case when MAIN_PROD_ID2 in ('10','11') 	then USER_ID else null end)   CUST_MOBILE_NUM
+	,count(distinct case when MAIN_PROD_ID2 = '21' 		then USER_ID else null end)   CUST_FIX_NUM
+from 	EDW_SHARE.S_TD_USER_360_$TX_MONTH
+where 	OP_TIME = $TX_MONTH	AND INNET_FLAG = 1	AND CUST_ID IS NOT NULL
+and MAIN_PROD_ID2  in (10,11,12,13)
+group by 	CUST_ID
+);
+
+
+
+
+--**用户对应客户下移动和宽带号码数量【最终关联】
+drop table 	${db_name}.TEMP_CUSTUSERNUM2_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_CUSTUSERNUM2_$TX_MONTH compress as (
+select	T1.USER_ID
+	,T2.CUST_ID
+	,T2.CUST_MOBILE_NUM
+	,T2.CUST_FIX_NUM
+from 	EDW_SHARE.S_TD_USER_360_$TX_MONTH		T1
+LEFT JOIN	${db_name}.TEMP_CUSTUSERNUM_$TX_MONTH	T2
+ON	T1.CUST_ID = T2.CUST_ID
+WHERE T1.OP_TIME = $TX_MONTH
+AND T1.INNET_FLAG = 1	
+and T1.MAIN_PROD_ID2  in (10,11,12,13)
+group by T1.USER_ID
+	,T2.CUST_ID
+	,T2.CUST_MOBILE_NUM
+	,T2.CUST_FIX_NUM
+);
+
+
+
+
+---是否订购流量包
+drop table ${db_name}.TEMP_FLUXPAK_$TX_MONTH;
+
+create  TABLE ${db_name}.TEMP_FLUXPAK_$TX_MONTH compress as (
+select
+distinct user_id --是否流量包
+from 
+integ.i_u_user_price_m
+where OP_TIME = $TX_MONTH
+AND TO_CHAR(START_DT,'YYYYMM') <= OP_TIME		--生效
+AND TO_CHAR(END_DT,'YYYYMM') >= OP_TIME		--失效时间大于当月
+and PRICE_PLAN_CD in (select distinct PRICE_PLAN_CD from dim.d_price_plan where name like '%流量包%'
+																	or name like '%4G 流量升级包201412 10 元-可选包%'
+																	or name like '%4G流量升级包201407 100元-可选包%'
+																	or name like '%4G流量升级包201407 180元-可选包%'
+																	or name like '%4G流量升级包201407 30元-可选包%'
+																	or name like '%4G流量升级包201407 50元-可选包%'
+																	or name like '%不限量升级包100元201802%'
+																	or name like '%不限量升级包100元-4折-高档201802%'
+																	or name like '%不限量升级包100元-5折201802%'
+																	or name like '%不限量升级包专享补贴201804-30元%'
+																	or name like '%不限量升级包专享补贴201804-40元%'
+																	or name like '%不限量升级包专享补贴201804-90元%'
+																	or name like '%加餐包%' 
+																	or name like '%闲时流量%'
+																	or name like '%后向流量%'
+																	or name like '%定向流量%'
+																	or name like '%流量季包%'
+																	or name like '%流量半年包%'
+																	)
+);
+
+
+
+
+---流量与通话漫游天数（春节）
+--流量漫游日期
+drop table ${db_name}.TEMP_F_ROAM_CHUNJIE;
+
+CREATE  TABLE ${db_name}.TEMP_F_ROAM_CHUNJIE compress as (
+select	 deal_date
+	,user_id 	subs_id
+	,sum(IX_KBYTES)*1.00/1024    flow	--总使用流量(MB)  
+from 	ods_share.s_td_data_201802 	t1
+where 	substr(deal_date,1,6) = 201802
+and ROAM_TYPE_ID <> '1001'
+group by 	deal_date,user_id 	
+);
+
+
+
+--语音漫游日期
+drop table ${db_name}.TEMP_C_ROAM_CHUNJIE;
+
+CREATE  TABLE ${db_name}.TEMP_C_ROAM_CHUNJIE compress as (
+select	deal_date
+	,user_id 	subs_id
+	,sum(CALL_DURA)*1.00/60 VC	--总语音(分钟)  
+from 	ods_share.s_td_call_201802  	t1
+where 	substr(deal_date,1,6) = 201802
+	and ROAM_TYPE_ID <> '1001'
+group by 	deal_date,user_id
+) ;
+
+
+
+--**语音或流量漫游天数表（春节）【最终关联】
+drop table ${db_name}.TEMP_ROAMDAYS_CHUNJIE;
+
+CREATE  TABLE ${db_name}.TEMP_ROAMDAYS_CHUNJIE compress as (
+select	T1.subs_id
+	,COUNT(DISTINCT T1.DEAL_DATE)  	AS ROAM_DAYS
+	--,COUNT(DISTINCT T2.DEAL_DATE)	AS FLOW_ROAM_DAYS
+from 
+(select	 subs_id, deal_date
+from 	${db_name}.TEMP_F_ROAM_CHUNJIE
+where 	flow > 0
+group by 	subs_id, deal_date
+union
+select	subs_id, Deal_Date
+from 	${db_name}.TEMP_C_ROAM_CHUNJIE
+where 	VC > 0
+group by 	subs_id, deal_date
+)				t1
+--LEFT JOIN 
+--${db_name}.TEMP_F_ROAM_CHUNJIE
+--ON	T1.SUBS_ID = T2.SUBS_ID
+group by 	T1.subs_id
+);
+
+
+
+
+
+---流量与通话漫游天数（非春节）
+--流量漫游日期
+drop table ${db_name}.TEMP_F_ROAM_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_F_ROAM_$TX_MONTH compress as (
+select	 deal_date
+	,user_id 	subs_id
+	,sum(IX_KBYTES)*1.00/1024    flow	--总使用流量(MB)  
+from 	ods_share.s_td_data_$TX_MONTH 	t1
+where 	substr(deal_date,1,6) = $TX_MONTH
+	and ROAM_TYPE_ID <> '1001'
+group by 	deal_date,user_id
+) ;
+
+
+
+--语音漫游日期
+drop table ${db_name}.TEMP_C_ROAM_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_C_ROAM_$TX_MONTH compress as (
+select	deal_date
+	,user_id 	subs_id
+	,sum(CALL_DURA)*1.00/60 VC	--总语音(分钟)  
+from 	ods_share.s_td_call_$TX_MONTH  	t1
+where 	substr(deal_date,1,6) = $TX_MONTH
+	and ROAM_TYPE_ID <> '1001'
+group by 	deal_date,user_id 
+);
+
+
+
+--**语音或流量漫游天数表【最终关联】
+drop table ${db_name}.TEMP_ROAMDAYS_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_ROAMDAYS_$TX_MONTH compress as (
+select	T1.subs_id
+	,COUNT(DISTINCT T1.DEAL_DATE)  	AS ROAM_DAYS
+	,COUNT(DISTINCT T2.DEAL_DATE)	AS FLOW_ROAM_DAYS
+from 
+(select	 subs_id, deal_date
+from 	${db_name}.TEMP_F_ROAM_$TX_MONTH 
+where 	flow > 0
+group by 	subs_id, deal_date
+union
+select	subs_id, Deal_Date
+from 	${db_name}.TEMP_C_ROAM_$TX_MONTH
+where 	VC > 0
+group by 	subs_id, Deal_Date
+) t1
+LEFT JOIN 
+(select * from ${db_name}.TEMP_F_ROAM_$TX_MONTH where flow > 0) t2
+ON	T1.SUBS_ID = T2.SUBS_ID
+group by 	T1.subs_id
+)  ;
+
+
+
+---**休息日次数与时长
+DROP TABLE ${db_name}.TEMP_REST_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_REST_$TX_MONTH compress AS
+(
+SELECT  USER_ID,CALL_TYPE_ID,COUNT(1) AS USER_AMOUNTS,SUM(CALL_DURA)*1.00/60 AS CALL_DURA 
+FROM 	ods_share.s_td_call_$TX_MONTH 
+WHERE DEAL_DATE >= ('$TX_MONTH' || '01') 
+AND   DEAL_DATE <= ('$TX_MONTH' || '$MONDAYNUM')
+and  to_number(to_char(TO_DATE(DEAL_DATE,'YYYYMMDD'),'D')) in (7,1)
+and coalesce(CALL_DURA,0) > 0
+GROUP BY USER_ID,CALL_TYPE_ID
+) ;
+
+
+
+---**工作日次数与时长
+DROP TABLE ${db_name}.TEMP_WORK_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_WORK_$TX_MONTH compress AS
+(
+SELECT  USER_ID,CALL_TYPE_ID,COUNT(1) AS USER_AMOUNTS,SUM(CALL_DURA)*1.00/60 AS CALL_DURA 
+FROM ods_share.s_td_call_$TX_MONTH WHERE DEAL_DATE >= ('$TX_MONTH' || '01') 
+AND   DEAL_DATE <= ('$TX_MONTH' || '$MONDAYNUM')
+and  to_number(to_char(TO_DATE(DEAL_DATE,'YYYYMMDD'),'D')) not  in (7,1)
+and coalesce(CALL_DURA,0) > 0
+GROUP BY USER_ID,CALL_TYPE_ID
+)
+;
+
+
+
+---**联通号码
+DROP TABLE ${db_name}.TEMP_CU_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_CU_$TX_MONTH compress AS
+(
+SELECT  
+RAW_SELF_NUMBER,sum(CALLING_TIMES) as CALLING_TIMES,sum(CALLED_TIMES) as CALLED_TIMES,sum(TOLL_TIMES) as TOLL_TIMES
+,sum(CALLING_DURATION) as CALLING_DURATION,sum(CALLED_DURATION) as CALLED_DURATION
+ FROM lixiang.zm_temp_mobile_user 
+WHERE 
+OP_TIME = $TX_MONTH 
+AND SUBSTR(RAW_OPP_NUMBER,1,7) IN 
+(SELect FRONT_SEVEN_NO FROM ${db_name}.TB_PHONE_NO_HOME
+WHERE OPERATORS = '中国联通')
+group by RAW_SELF_NUMBER
+);
+
+
+
+---**移动号码
+DROP TABLE ${db_name}.TEMP_CMCC_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_CMCC_$TX_MONTH compress AS
+(
+SELECT 
+RAW_SELF_NUMBER,sum(CALLING_TIMES) as CALLING_TIMES,sum(CALLED_TIMES) as CALLED_TIMES,sum(TOLL_TIMES) as TOLL_TIMES
+,sum(CALLING_DURATION) as CALLING_DURATION,sum(CALLED_DURATION) as CALLED_DURATION
+ FROM lixiang.zm_temp_mobile_user 
+WHERE 
+OP_TIME = $TX_MONTH 
+AND SUBSTR(RAW_OPP_NUMBER,1,7) IN 
+(SELect FRONT_SEVEN_NO FROM ${db_name}.TB_PHONE_NO_HOME
+WHERE OPERATORS = '中国移动')
+group by RAW_SELF_NUMBER
+);
+
+
+
+
+---**10086
+DROP TABLE ${db_name}.TEMP_10086_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_10086_$TX_MONTH compress AS
+(
+SELECT  
+RAW_SELF_NUMBER,sum(CALLING_TIMES) as CALLING_TIMES,sum(CALLED_TIMES) as CALLED_TIMES,sum(TOLL_TIMES) as TOLL_TIMES
+,sum(CALLING_DURATION) as CALLING_DURATION,sum(CALLED_DURATION) as CALLED_DURATION
+ FROM lixiang.zm_temp_mobile_user 
+WHERE 
+OP_TIME = $TX_MONTH
+AND RAW_OPP_NUMBER = '10086'
+group by RAW_SELF_NUMBER
+);
+
+
+
+
+---**10010
+DROP TABLE ${db_name}.TEMP_10010_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_10010_$TX_MONTH compress AS
+(
+SELECT  
+RAW_SELF_NUMBER,sum(CALLING_TIMES) as CALLING_TIMES,sum(CALLED_TIMES) as CALLED_TIMES,sum(TOLL_TIMES) as TOLL_TIMES
+,sum(CALLING_DURATION) as CALLING_DURATION,sum(CALLED_DURATION) as CALLED_DURATION
+ FROM lixiang.zm_temp_mobile_user 
+WHERE 
+OP_TIME = $TX_MONTH
+AND RAW_OPP_NUMBER = '10010'
+group by RAW_SELF_NUMBER
+);
+
+
+
+---语音来电按天统计
+DROP TABLE ${db_name}.TEMP_GSMDATE_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_GSMDATE_$TX_MONTH compress AS
+(
+select distinct USER_ID
+, DEAL_DATE
+from ods_share.s_td_call_$TX_MONTH where 
+ DEAL_DATE >= ('$TX_MONTH'||'01')
+AND DEAL_DATE <= ('$TX_MONTH'||'$MONDAYNUM')
+AND COALESCE(CALL_DURA,0) > 0
+--group by 1
+)
+;
+
+
+
+--**语音来电最大最小间隔时长
+
+drop table ${db_name}.TEMP_GSMINTERVAL_$TX_MONTH;
+
+create  table ${db_name}.TEMP_GSMINTERVAL_$TX_MONTH compress as (
+select USER_ID,min(duratime) as duratime_min ,max(duratime) as duratime_max
+from
+(
+select a.USER_ID,a.deal_date as startdate
+,min(b.deal_date) as enddate
+,(min(b.deal_date) - a.deal_date) as duratime --间隔时间 
+from 
+${db_name}.TEMP_GSMDATE_$TX_MONTH a
+inner join
+${db_name}.TEMP_GSMDATE_$TX_MONTH b
+on a.USER_ID=b.USER_ID and a.deal_date<b.deal_date
+group by a.USER_ID,a.deal_date
+) c
+group by USER_ID
+) 
+;
+
+
+
+------** 语音通信天数+语音漫游天数+基站个数
+DROP TABLE ${db_name}.TEMP_GSM_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_GSM_$TX_MONTH compress AS
+(
+select  USER_ID
+,count(distinct case when  COALESCE(CALL_DURA,0) > 0 then DEAL_DATE else null end) as communi_days
+,count(distinct case when ROAM_TYPE_ID <> '1001' and COALESCE(CALL_DURA,0) > 0 then DEAL_DATE else null end) as roam_days
+--,count(distinct case when SELF_MSC_ID in ('1382425','00001','1','1382426','00002','2','1382427','00003','3') then SELF_MSC_ID||CELL_ID else CELL_ID end) as cell_amounts
+,count(distinct self_msc_id||self_cell_id||self_lac_id) as cell_amounts
+from ods_share.s_td_call_$TX_MONTH where 
+ DEAL_DATE >= ('$TX_MONTH'||'01')
+AND DEAL_DATE <= ('$TX_MONTH'||'$MONDAYNUM')
+group by USER_ID
+)
+;
+
+
+
+---语音基站个数
+DROP TABLE ${db_name}.TEMP_CELL_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_CELL_$TX_MONTH compress AS
+(
+select  DEAL_DATE
+,USER_ID
+--,count(distinct case when SELF_MSC_ID in ('1382425','00001','1','1382426','00002','2','1382427','00003','3') then SELF_MSC_ID||CELL_ID else CELL_ID end) 
+,count(distinct self_msc_id||self_cell_id||self_lac_id) as cell_amount_perday
+from ods_share.s_td_call_$TX_MONTH where
+ DEAL_DATE >= ('$TX_MONTH'||'01')
+AND DEAL_DATE <= ('$TX_MONTH'||'$MONDAYNUM')
+group by DEAL_DATE,USER_ID
+)
+;
+
+
+
+---** 语音基站超过5-30个天数
+DROP TABLE ${db_name}.TEMP_CELLNUM_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_CELLNUM_$TX_MONTH compress AS
+(
+select  
+USER_ID
+,count (distinct case when cell_amount_perday >= 5 then DEAL_DATE else null end ) as cell_amount_day5
+,count (distinct case when cell_amount_perday >= 10 then DEAL_DATE else null end ) as cell_amount_day10
+,count (distinct case when cell_amount_perday >= 15 then DEAL_DATE else null end ) as cell_amount_day15
+,count (distinct case when cell_amount_perday >= 20 then DEAL_DATE else null end ) as cell_amount_day20
+,count (distinct case when cell_amount_perday >= 30 then DEAL_DATE else null end ) as cell_amount_day30
+from  ${db_name}.TEMP_CELL_$TX_MONTH
+group by USER_ID
+)
+;
+
+
+
+
+drop table ${db_name}.TEMP_TCPERWAI_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_TCPERWAI_$TX_MONTH compress AS
+(
+select a.USER_ID
+,case when (a.flux_all - b.pge_flow) <= 0 then a.flux_all else b.pge_flow end as flux_all_all
+,a.flux_all*1.00/nullif(b.pge_flow,0) as tc_use_per
+,case when (a.flux_all - b.pge_flow) < 0 then 0 else (a.flux_all - b.pge_flow) end as tc_wai_amount
+from
+(select USER_ID,main_pp_id,
+(COALESCE(G4_FLUX,0)+COALESCE(G3_FLUX,0)+COALESCE(G2_FLUX,0) )*1.00/1024 as flux_all
+from EDW_SHARE.S_TD_USER_360_$TX_MONTH where op_time = $TX_MONTH) a
+left join
+(select * from ${db_name}.zude_tcdangwei where pge_stall <> 0) b
+on a.main_pp_id = b.price_plan_cd
+)
+;
+
+
+
+
+----结转流量
+drop table ${db_name}.TEMP_JIEZHUAN_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_JIEZHUAN_$TX_MONTH compress AS
+(
+select SERV_ID,sum(BALANCE_CHANGED)*1.00/1024 as jz_amount
+from ods_sum.s_ac_price_plan_use_$TX_MONTH 
+where operation_type  = 14 and OP_TIME = $TX_MONTH
+group by SERV_ID
+)
+;
+
+
+
+
+---流量通信天数
+---流量来电按天统计
+DROP TABLE ${db_name}.TEMP_FLUXDATE_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_FLUXDATE_$TX_MONTH compress AS
+(
+select  distinct USER_ID
+, DEAL_DATE
+from ods_share.s_td_data_$TX_MONTH where 
+ DEAL_DATE >=('$TX_MONTH'||'01')
+AND DEAL_DATE <=('$TX_MONTH'||'$MONDAYNUM')
+and coalesce(IX_KBYTES,0) > 0 
+)
+;
+
+
+
+--**流量最大最小间隔时长
+
+drop table ${db_name}.TEMP_FLUXINTERVAL_$TX_MONTH;
+
+create  table ${db_name}.TEMP_FLUXINTERVAL_$TX_MONTH compress as (
+select USER_ID,min(duratime) duratime_min ,max(duratime) duratime_max
+from
+(
+select a.USER_ID,a.deal_date as startdate
+,min(b.deal_date) as enddate
+,(min(b.deal_date) - a.deal_date) as duratime --间隔时间 
+from 
+${db_name}.TEMP_FLUXDATE_$TX_MONTH a
+inner join
+${db_name}.TEMP_FLUXDATE_$TX_MONTH b
+on a.USER_ID=b.USER_ID and a.deal_date < b.deal_date
+group by a.USER_ID,a.deal_date
+) c
+group by USER_ID
+) 
+;
+
+
+
+
+------** 流量通信天数+流量漫游天数+基站个数
+DROP TABLE ${db_name}.TEMP_FLUX_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_FLUX_$TX_MONTH compress AS
+(
+select  USER_ID
+,count(distinct case when coalesce(IX_KBYTES,0) > 0 then DEAL_DATE else null end) as communi_days
+,count(distinct case when ROAM_TYPE_ID <> '1001' and coalesce(IX_KBYTES,0) > 0 then DEAL_DATE else null end) as roam_days
+--,count(distinct case when SELF_MSC_ID in ('1382425','00001','1','1382426','00002','2','1382427','00003','3') then SELF_MSC_ID||CELL_ID else CELL_ID end)  as cell_amounts
+,count(distinct bsid) as cell_amounts
+from ods_share.s_td_data_$TX_MONTH where 
+ DEAL_DATE >=('$TX_MONTH'||'01')
+AND DEAL_DATE <=('$TX_MONTH'||'$MONDAYNUM')
+group by USER_ID
+)
+;
+
+
+
+
+---流量基站个数
+DROP TABLE ${db_name}.TEMP_FLUXCELL_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_FLUXCELL_$TX_MONTH compress AS
+(
+select  DEAL_DATE
+,USER_ID
+--,count(distinct case when SELF_MSC_ID in ('1382425','00001','1','1382426','00002','2','1382427','00003','3') then SELF_MSC_ID||CELL_IDelse CELL_ID end)  as 
+,count(distinct bsid) as cell_amount_perday
+from ods_share.s_td_data_$TX_MONTH where 
+DEAL_DATE >=('$TX_MONTH'||'01')
+AND DEAL_DATE <=('$TX_MONTH'||'$MONDAYNUM')
+group by DEAL_DATE,USER_ID
+)
+;
+
+
+
+---** 流量基站超过5-30个天数
+DROP TABLE ${db_name}.TEMP_FLUXCELLNUM_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_FLUXCELLNUM_$TX_MONTH compress AS
+(
+select  
+USER_ID
+,count (distinct case when cell_amount_perday >= 10 then DEAL_DATE else null end ) as cell_amount_day10
+,count (distinct case when cell_amount_perday >= 20 then DEAL_DATE else null end ) as cell_amount_day20
+,count (distinct case when cell_amount_perday >= 30 then DEAL_DATE else null end ) as cell_amount_day30
+,count (distinct case when cell_amount_perday >= 50 then DEAL_DATE else null end ) as cell_amount_day50
+from  ${db_name}.TEMP_FLUXCELL_$TX_MONTH
+group by USER_ID
+)
+;
+
+
+
+
+
+---日流量汇总
+---***按日流量汇总
+DROP TABLE ${db_name}.TEMP_FLUXDATE_DSUM_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_FLUXDATE_DSUM_$TX_MONTH compress AS
+(
+select DEAL_DATE
+,USER_ID
+,sum(coalesce(IX_KBYTES,0))*1.00/1024 as IX_KBYTES
+,sum(case when se_time in (20,21,22,23,0,1,2,3,4,5,6) then coalesce(IX_KBYTES,0) else 0 end)*1.00/1024 as night_kbytes
+from ods_share.s_td_data_$TX_MONTH where 
+ DEAL_DATE >=('$TX_MONTH'||'01')
+AND DEAL_DATE <=('$TX_MONTH'||'$MONDAYNUM')
+group by DEAL_DATE,USER_ID
+)
+;
+
+
+
+----***时段数据
+DROP TABLE ${db_name}.TEMP_FLUXSETIME_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_FLUXSETIME_$TX_MONTH compress AS
+(
+select USER_ID,DEAL_DATE,se_time
+,sum(coalesce(IX_KBYTES,0))*1.00/1024 as IX_KBYTES
+from ods_share.s_td_data_$TX_MONTH where 
+ DEAL_DATE >= ('$TX_MONTH'||'01')
+AND DEAL_DATE <= ('$TX_MONTH'||'$MONDAYNUM')
+group by USER_ID,DEAL_DATE,se_time
+)
+;
+
+
+
+----**移动交往圈 10001本地
+DROP TABLE ${db_name}.TEMP_MOBJWQ_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_MOBJWQ_$TX_MONTH compress AS
+(
+select 
+op_time
+,RAW_SELF_NUMBER
+,RAW_OPP_NUMBER
+,TOLL_TYPE
+,sum(coalesce(CALLING_DURATION,0)+coalesce(CALLED_DURATION,0)) as call_amount
+,sum(coalesce(CALLING_TIMES,0)+coalesce(CALLED_TIMES,0)) as call_times
+,sum(coalesce(CALLING_DURATION,0)+coalesce(CALLED_DURATION,0))*1.00/nullif(sum(coalesce(CALLING_TIMES,0)+coalesce(CALLED_TIMES,0)),0) as percall_seconds
+from
+lixiang.zm_temp_mobile_user  
+where op_time >= $LAST1MONTH_CHAR
+and op_time <= $TX_MONTH
+group by op_time
+,RAW_SELF_NUMBER
+,RAW_OPP_NUMBER
+,TOLL_TYPE
+)
+;
+
+
+
+----固网交往圈
+DROP TABLE ${db_name}.TEMP_STIJWQ_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_STIJWQ_$TX_MONTH compress AS
+(
+select 
+RAW_SELF_NUMBER
+,count(distinct RAW_OPP_NUMBER) as opp_nums
+from
+lixiang.zm_temp_fix_user 
+where op_time = $TX_MONTH
+group by RAW_SELF_NUMBER
+)
+;
+
+
+
+---APP
+drop TABLE ${db_name}.TEMP_APP_$TX_MONTH;
+
+CREATE  TABLE ${db_name}.TEMP_APP_$TX_MONTH compress AS
+(
+select 
+T.USER_ID
+,count(distinct case when T.visit_type = 'app' and T.CAL_MONTH = $MONTH_LASTDAY then T.app_type_name2 else null end) as app_amounts
+,count(distinct case when T.visit_type = 'app'  then T.CAL_MONTH else null end) as app_days
+,count(distinct case when T.app_type_name2 = '微信'  then T.CAL_MONTH else null end) as weixin_days
+,sum(distinct case when T.app_type_name2 = '微信' and T.CAL_MONTH = $MONTH_LASTDAY then MTD_PV else null end) as weixin_pv
+,sum(distinct case when T.app_type_name2 = '微信' and T.CAL_MONTH = $MONTH_LASTDAY then MTD_USERFLOW else null end) as weixin_flux
+from  (SELECT $TX_MONTH AS CAL_MONTH,USER_ID,PHONE_ID,VISIT_TYPE,TYPE_NAME1,TYPE_NAME2,TYPE_NAME3,TYPE_NAME4,TYPE_NAME5,TYPE_NAME6,APP_TYPE_NAME1,APP_TYPE_NAME2,APP_TYPE_NAME3,KEYWORD,PV,USERFLOW,MTD_PV,MTD_USERFLOW,FLAG_4G,WW_PHOTO_FLAG
+       FROM integ.i_e_dpi_cdr_jt_$TX_MONTH ) T
+where T.CAL_MONTH >= $MONTH_FIRSTDAY
+and T.CAL_MONTH <= $MONTH_LASTDAY
+and T.user_id in (select user_id from 	EDW_SHARE.S_TD_USER_360_$TX_MONTH
+                   where op_time = $TX_MONTH	and MAIN_PROD_ID2  in (10,11,12,13))
+group by T.USER_ID
+)
+;
+
+
+
+
+drop table ${db_name}.jwq_table1;
+
+create  table ${db_name}.jwq_table1 compress as 
+(
+select RAW_SELF_NUMBER
+,RAW_OPP_NUMBER
+,case when b.front_seven_no is not null then 1 else 0 end as other_friend_nums
+,sum(call_amount)*1.00/nullif(sum(call_times),0) as call_amount_per
+from ${db_name}.TEMP_MOBJWQ_$TX_MONTH  a
+left join
+(
+select front_seven_no from ${db_name}.tb_phone_no_home
+where operators  <> '中国电信'
+) b
+on substr(a.RAW_OPP_NUMBER,1,7) = b.front_seven_no
+where op_time = $TX_MONTH and call_times >= 1
+group by RAW_SELF_NUMBER
+,RAW_OPP_NUMBER
+,case when b.front_seven_no is not null then 1 else 0 end
+)
+;
+
+
+
+drop table ${db_name}.jwq_table11;
+
+create  table ${db_name}.jwq_table11 compress as 
+(
+select RAW_SELF_NUMBER
+,count(distinct RAW_OPP_NUMBER) as opp_nums
+,count(distinct case when call_amount_per > 1 then RAW_OPP_NUMBER else null end) as  valid_opp_nums
+,sum(other_friend_nums) as other_friend_nums
+,count(case when other_friend_nums =1 and call_amount_per > 1 then RAW_OPP_NUMBER else null end) as valid_other_friend_nums
+from ${db_name}.jwq_table1
+group by RAW_SELF_NUMBER
+)
+;
+
+
+
+
+drop table ${db_name}.jwq_table2;
+
+create  table ${db_name}.jwq_table2 compress as 
+(
+select T1.RAW_SELF_NUMBER,count(distinct RAW_OPP_NUMBER) as toll_type_users from
+(
+select
+RAW_SELF_NUMBER
+, case when TOLL_TYPE <> '10001' then RAW_OPP_NUMBER else null end  as RAW_OPP_NUMBER
+from ${db_name}.TEMP_MOBJWQ_$TX_MONTH
+where call_times >= 1 
+group by RAW_SELF_NUMBER
+, case when TOLL_TYPE <> '10001' then RAW_OPP_NUMBER else null end
+having count(distinct op_time) = 3 ) T1
+left join
+${db_name}.tb_c_hcode_info_all T2
+on substr(t1.RAW_OPP_NUMBER,1,7) = cast(t2.HCODE as varchar2(10)) and t2.AREA_CODE <> 10
+group by RAW_SELF_NUMBER
+)
+;
+
+
+
+drop table ${db_name}.jwq_table3;
+
+create  table ${db_name}.jwq_table3 compress as 
+(
+select 
+RAW_SELF_NUMBER
+,RAW_OPP_NUMBER
+,case when b.front_seven_no is not null then 1 else 0 end as other_friend_nums
+,count(distinct op_time) as op_time_counts
+,sum(call_amount)*1.00/nullif(sum(call_times),0) as call_amount_per
+from ${db_name}.TEMP_MOBJWQ_$TX_MONTH  a
+left join
+(
+select front_seven_no from ${db_name}.tb_phone_no_home
+where operators  <> '中国电信'
+) b
+on substr(a.RAW_OPP_NUMBER,1,7) = b.front_seven_no
+where a.call_times >= 3
+group by RAW_SELF_NUMBER
+,RAW_OPP_NUMBER
+,case when b.front_seven_no is not null then 1 else 0 end
+)
+;
+
+
+
+drop table ${db_name}.jwq_table33;
+
+create  table ${db_name}.jwq_table33 compress as 
+(
+	select RAW_SELF_NUMBER
+	,count(distinct RAW_OPP_NUMBER) as JWQ_CLOSE_NUM
+	,count(distinct case when other_friend_nums =1 then RAW_OPP_NUMBER else null end) as OTHER_JWQ_CLOSE_NUM
+	from
+	${db_name}.jwq_table3 
+	where call_amount_per > 1 and op_time_counts = 3
+	group by RAW_SELF_NUMBER
+)
+;
+
+
+
+drop table ${db_name}.temp_step1;
+
+create  table ${db_name}.temp_step1 compress as 
+(
+select T1.op_time,T1.user_id,T1.ACC_NBR
+,coalesce(T2.CERT_MOBILE_NUM,0) as CERT_MOBILE_NUM
+,coalesce(T2.CERT_FIX_NUM,0) as CERT_FIX_NUM
+,coalesce(T3.CUST_MOBILE_NUM,0) as CUST_MOBILE_NUM
+,coalesce(T3.CUST_FIX_NUM,0) as CUST_FIX_NUM
+,case when t8.user_id is not null then '1' else '0' end as flux_package
+,coalesce(T4.ROAM_DAYS,0) as chunjie_ROAM_DAYS
+,coalesce(T5.ROAM_DAYS,0) as fei_chunjie_ROAM_DAYS
+,user_amounts_work
+,user_amounts_rest
+,call_dura_work
+,call_dura_rest
+,calling_amounts_work
+,calling_amounts_rest
+,calling_dura_work
+,calling_dura_rest
+from
+(select OP_TIME,user_id,ACC_NBR from
+EDW_SHARE.S_TD_USER_360_$TX_MONTH where OP_TIME= $TX_MONTH and MAIN_PROD_ID2  in (10,11,12,13)) T1
+left join
+${db_name}.TEMP_CERTUSERNUM2_$TX_MONTH T2
+on T1.user_id = T2.user_id
+left join
+${db_name}.TEMP_CUSTUSERNUM2_$TX_MONTH T3
+on T1.user_id = T3.user_id
+left join
+${db_name}.TEMP_ROAMDAYS_CHUNJIE T4
+on T1.user_id = T4.SUBS_ID
+left join
+${db_name}.TEMP_ROAMDAYS_$TX_MONTH T5
+on T1.user_id = T5.SUBS_ID
+left join
+(select USER_ID,sum(USER_AMOUNTS) as user_amounts_rest
+,sum(CALL_DURA) as call_dura_rest
+,sum(case when CALL_TYPE_ID = 10 then USER_AMOUNTS else 0 end) as calling_amounts_rest
+,sum(case when CALL_TYPE_ID = 10 then CALL_DURA else 0 end) as calling_dura_rest
+ from  ${db_name}.TEMP_REST_$TX_MONTH
+ group by USER_ID
+ ) T6
+on T1.user_id = T6.USER_ID
+left join
+(select USER_ID
+,sum(USER_AMOUNTS) as user_amounts_work
+,sum(CALL_DURA) as call_dura_work
+,sum(case when CALL_TYPE_ID = 10 then USER_AMOUNTS else 0 end) as calling_amounts_work
+,sum(case when CALL_TYPE_ID = 10 then CALL_DURA else 0 end) as calling_dura_work
+ from  ${db_name}.TEMP_WORK_$TX_MONTH
+ group by USER_ID
+ ) T7
+on T1.user_id = T7.USER_ID
+left join
+${db_name}.TEMP_FLUXPAK_$TX_MONTH T8
+on T1.user_id = T8.USER_ID
+)
+;
+
+
+
+drop table ${db_name}.temp_step2;
+
+create  table ${db_name}.temp_step2 compress as 
+(
+select T1.*
+,T2.CALLING_TIMES+T2.CALLED_TIMES as cmcc_all_times
+,T2.CALLING_DURATION+T2.CALLED_DURATION as cmcc_all_dura
+,T2.CALLING_TIMES as cmcc_call_time
+,T2.CALLING_DURATION as cmcc_call_dura
+,T3.CALLING_TIMES+T3.CALLED_TIMES as cu_all_times
+,T3.CALLING_DURATION+T3.CALLED_DURATION as cu_all_dura
+,T3.CALLING_TIMES as cu_call_time
+,T3.CALLING_DURATION as cu_call_dura
+,T4.CALLING_TIMES+T4.CALLED_TIMES as all_times_10086
+,T4.CALLING_TIMES as call_times_10086
+,T5.CALLING_TIMES+T5.CALLED_TIMES as all_times_10010
+,T5.CALLING_TIMES as call_times_10010
+from
+temp_step1 T1
+left join
+${db_name}.TEMP_CMCC_$TX_MONTH T2
+on T1.ACC_NBR = T2.RAW_SELF_NUMBER
+left  join
+${db_name}.TEMP_CU_$TX_MONTH T3
+on T1.ACC_NBR = T3.RAW_SELF_NUMBER
+left join
+${db_name}.TEMP_10086_$TX_MONTH T4
+on T1.ACC_NBR = T4.RAW_SELF_NUMBER
+left join
+${db_name}.TEMP_10010_$TX_MONTH T5
+on T1.ACC_NBR = T5.RAW_SELF_NUMBER
+)
+;
+
+
+
+
+drop table ${db_name}.temp_step3;
+
+create  table ${db_name}.temp_step3 compress as 
+(
+select T1.*,T2.communi_days
+,T3.duratime_max
+,T3.duratime_min
+,T2.roam_days
+,T2.cell_amounts
+,T4.cell_amount_day5
+,T4.cell_amount_day10
+,T4.cell_amount_day15
+,T4.cell_amount_day20
+,T4.cell_amount_day30
+,T5.tc_use_per as tc_usage_rate
+,T5.flux_all_all as user_used
+,T5.tc_wai_amount
+,T8.jz_amount
+from
+${db_name}.temp_step2 T1
+left join
+${db_name}.TEMP_GSM_$TX_MONTH T2
+on T1.user_id = T2.USER_ID
+left join
+${db_name}.TEMP_GSMINTERVAL_$TX_MONTH T3
+on T1.user_id = T3.USER_ID
+left join
+${db_name}.TEMP_CELLNUM_$TX_MONTH T4
+on T1.user_id = T4.USER_ID
+left join
+${db_name}.TEMP_TCPERWAI_$TX_MONTH T5
+on T1.user_id = T5.USER_ID
+left join 
+${db_name}.TEMP_JIEZHUAN_$TX_MONTH T8
+on T1.user_id = T8.SERV_ID
+)
+;
+
+
+
+
+drop table ${db_name}.temp_step4;
+
+create  table ${db_name}.temp_step4 compress as 
+(
+select T1.*
+,T2.communi_days as flux_communi_days
+,T3.duratime_max as flux_duratime_max
+,T3.duratime_min as flux_duratime_min
+,T2.roam_days as flux_roam_days
+,T2.cell_amounts as flux_cell_amounts
+,T4.cell_amount_day10 as flux_cell_amount_day10
+,T4.cell_amount_day20 as flux_cell_amount_day20
+,T4.cell_amount_day30 as flux_cell_amount_day30
+,T4.cell_amount_day50 as flux_cell_amount_day50
+,T5.max_IX_KBYTES
+,T5.max_IX_KBYTES - T5.min_IX_KBYTES as max_min_kbytes
+,T5.night_kbytes
+,T5.maxnight_kbytes_day
+,T6.max_set_kbytes
+,T6.beyond_50_settimes
+,T6.beyond_100_settimes
+,T6.beyond_50_days
+,T6.beyond_100_days
+from
+${db_name}.temp_step3 T1
+left join
+${db_name}.TEMP_FLUX_$TX_MONTH T2
+on T1.user_id = T2.USER_ID
+left join
+${db_name}.TEMP_FLUXINTERVAL_$TX_MONTH T3
+on T1.user_id = T3.USER_ID
+left join
+${db_name}.TEMP_FLUXCELLNUM_$TX_MONTH T4
+on T1.user_id = T4.USER_ID
+left join
+(select USER_ID,max(IX_KBYTES) as max_IX_KBYTES 
+,min(IX_KBYTES) as min_IX_KBYTES 
+,sum(night_kbytes) as night_kbytes
+,max(night_kbytes) as maxnight_kbytes_day
+from ${db_name}.TEMP_FLUXDATE_DSUM_$TX_MONTH group by USER_ID) T5
+on T1.user_id = T5.USER_ID
+left join
+(select user_id
+,max(IX_KBYTES) as max_set_kbytes
+,sum(case when IX_KBYTES > 50 then 1 else 0 end) as beyond_50_settimes
+,sum(case when IX_KBYTES > 100 then 1 else 0 end) as beyond_100_settimes
+,count(distinct case when IX_KBYTES > 50 then DEAL_DATE else null end) as beyond_50_days
+,count(distinct case when IX_KBYTES > 100 then DEAL_DATE else null end) as beyond_100_days
+ from ${db_name}.TEMP_FLUXSETIME_$TX_MONTH group by user_id
+ ) T6
+on T1.user_id = T6.USER_ID
+)
+;
+
+ 
+
+
+drop table ${db_name}.temp_step5;
+
+create  table ${db_name}.temp_step5 compress as 
+(
+select T1.*
+,T2.opp_nums
+,T2.valid_opp_nums
+,T4.opp_nums as sti_opp_nums
+,T2.other_friend_nums
+,T2.valid_other_friend_nums
+,T3.toll_type_users
+,T5.JWQ_CLOSE_NUM
+,T5.OTHER_JWQ_CLOSE_NUM
+,T6.app_days
+,T6.app_amounts
+,T6.weixin_days
+,T6.weixin_pv
+,T6.weixin_flux
+from
+${db_name}.temp_step4 T1
+left join
+${db_name}.jwq_table11 T2
+on T1.ACC_NBR = T2.RAW_SELF_NUMBER
+left join
+${db_name}.jwq_table2 T3
+on T1.ACC_NBR = T3.RAW_SELF_NUMBER
+left join
+${db_name}.TEMP_STIJWQ_$TX_MONTH T4
+on T1.ACC_NBR = T4.RAW_SELF_NUMBER
+left join 
+${db_name}.jwq_table33 T5
+on T1.ACC_NBR = T5.RAW_SELF_NUMBER
+left join
+${db_name}.TEMP_APP_$TX_MONTH T6
+on T1.USER_ID = T6.user_id
+)
+;
+
+
+
+alter table  ${db_name}.TB_360_USERMID_M truncate partition "P_$TX_MONTH";
+alter table ${db_name}.TB_360_USERMID_M add partition "P_$TX_MONTH" values ($TX_MONTH)
+    tablespace TBS_DATA24
+    pctfree 0
+    initrans 1
+    maxtrans 255
+    storage
+    (
+      initial 80K
+      next 1M
+      minextents 1
+      maxextents unlimited
+    );
+INSERT  /*+ append nologging */ into ${db_name}.TB_360_USERMID_M
+select * from ${db_name}.temp_step5
+;
+COMMIT;
+alter session disable parallel dml; 
+	 -------SQL 结束------------------------------------
+	 exit;
+eof
+		};
+	 print $result;
+}
+
+
+######################################################################
+# Connect to DB by odbc method
+######################################################################
+sub DBconnect()
+{
+    my $connectString;
+    my $DSOURCE = ${AUTO_DSN};
+    my $OS   = $^O;
+    $OS =~ tr [A-Z][a-z];
+    if ( $OS eq "mswin32" || $OS eq "aix" || $OS eq "hpux" || $OS eq "linux") {
+        $connectString = "dbi:Oracle:${DSOURCE}";
+    }else{
+        $connectString = "dbi:Oracle:${DSOURCE}";
+    }
+    #print "\$connectString is $connectString\n";
+    open(LOGONFILE_H, "${LOGON_FILE}");
+    my $LOGON_STR = <LOGONFILE_H>;
+    close(LOGONFILE_H);
+    $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+    my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+    chop($userpw);
+    my ($USER, $PASSWD) = split(',' , $userpw);
+    #print "\$USER is $USER\n";
+    #print "\$PASSWD is $PASSWD\n";
+    my $dbh = DBI->connect($connectString,$USER,$PASSWD);
+    return $dbh;
+}
+
+
+sub DBDisconnect
+{
+   my ($dbh) = @_;
+
+    if(defined($dbh)){
+        $dbh->disconnect();
+        print "数据库成功连接\n";
+    }else{
+        print "断开数据库连接：数据库连接为空\n";
+    }
+}
+
+# main function
+###########################################################################
+sub main
+{
+   my $ret;
+   open(LOGONFILE_H, "${LOGON_FILE}");
+   $LOGON_STR = <LOGONFILE_H>;
+   close(LOGONFILE_H);
+   my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+   chop($userpw);
+   my ($USER, $PASSWD) = split(',' , $userpw);
+   
+   # Get the decoded logon string
+   $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+
+   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time());
+   $year += 1900;
+   $mon = sprintf("%02d", $mon + 1);
+   $mday = sprintf("%02d", $mday);
+   my $today = "${year}${mon}${mday}";
+
+   ####the date process function
+   $dbh=DBconnect();	#Connect DB
+   
+   #取当前的天，日+1，月数-1
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD'),'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY=$sth->fetchrow();
+   $sth->finish();
+   $THIS_YEAR_MON1=substr($DATE_TODAY,0,4)."01";
+   $THIS_YEAR_FIRSTDAY=substr($DATE_TODAY,0,4)."0101";
+   print "DATE_TODAY is $DATE_TODAY\n";
+
+   #取头一天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-1,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L1=$sth->fetchrow();
+   $sth->finish();
+   print "DATE_TODAY_L1 is $DATE_TODAY_L1    \n";
+
+   #取头二天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-2,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L2=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L2    \n";
+
+   #取头三天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-3,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L3=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L3    \n";
+
+   #取头四天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-4,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L4=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L4    \n";
+
+   #取头五天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-5,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L5=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L5    \n";
+
+   #取头六天
+   my $sqlText ="select to_char(to_date('$TX_DATE' , 'YYYYMMDD')-6,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L6=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L6    \n";
+   
+   #取本月的第一天
+   my $sqlText ="select substr('$DATE_TODAY',1,6)||'01' from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONTH_FIRSTDAY    \n";
+ 
+   #取本月的最后一天
+   my $sqlText ="select to_char(add_months(to_date(substr('$DATE_TODAY',1,6)||'01','YYYYMMDD'),1) - 1,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_LASTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONTH_LASTDAY    \n";
+
+  #取本月的char的标识方法
+   my $sqlText ="select substr('$DATE_TODAY',1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $TX_MONTH=$sth->fetchrow();
+   $sth->finish();
+   #print "$TX_MONTH    \n";
+
+   #取当月本天
+   my $sqlText ="select to_char(add_months(to_date(substr('$DATE_TODAY',1,6)||'01','YYYYMMDD'),-1),'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "MONTH_TODAY    \n";
+
+  #取上月的本天
+   my $sqlText ="select to_char(add_months(to_date('$DATE_TODAY','YYYYMMDD'),-2) ,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_TODAY    \n";
+
+   #取上月的第一天
+   my $sqlText ="select substr('$LAST1MONTH_TODAY',1,6)||'01' from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_FIRSTDAY    \n";
+
+   #取上月的最后一天
+   my $sqlText ="select to_char(add_months(to_date(substr('$LAST1MONTH_TODAY',1,6)||'01','YYYYMMDD'),1) - 1,'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_LASTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_LASTDAY    \n";
+
+  #取上月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$DATE_TODAY' ,'YYYYMMDD'),-1),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_CHAR    \n";
+
+   #取上2月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$MONTH_TODAY' ,'YYYYMMDD'),-1),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST2MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST2MONTH_CHAR    \n";
+
+   #取上3月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$MONTH_TODAY' ,'YYYYMMDD'),-2),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST3MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+
+   #取上4月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$LAST1MONTH_TODAY' ,'YYYYMMDD'),-3),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST4MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST4MONTH_CHAR    \n";
+
+   #取上5月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$LAST1MONTH_TODAY' ,'YYYYMMDD'),-4),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST5MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST5MONTH_CHAR    \n";
+
+   #取下月的本天
+   my $sqlText ="select to_char(add_months(to_date('$DATE_TODAY','YYYYMMDD'),1),'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_TODAY    \n";
+
+   #取下月的第一天
+   my $sqlText ="select substr('$NEXT1MONTH_TODAY',1,6)||'01' from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_FIRSTDAY    \n";
+
+  #取下月的最后一天
+   my $sqlText ="select to_char((add_months(to_date(substr('$NEXT1MONTH_TODAY',1,6)||'01','YYYYMMDD'),1) - 1),'YYYYMMDD') from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_LASTTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_LASTTDAY    \n";
+
+   #取下月的char的标识方法
+   my $sqlText ="select substr('$NEXT1MONTH_TODAY',1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_CHAR    \n";
+
+   #取下2月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$NEXT1MONTH_TODAY','YYYYMMDD'),1),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT2MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT2MONTH_CHAR    \n";
+
+   #取下3月的char的标识方法
+   my $sqlText ="select substr(to_char(ADD_MONTHS(to_date('$NEXT1MONTH_TODAY','YYYYMMDD'),2),'YYYYMMDD'),1,6) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT3MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT3MONTH_CHAR    \n";
+#
+#   #取当年天数的方法
+#   my $sqlText ="SELECT DAY_OF_YEAR FROM SYS_CALENDAR.CALENDAR WHERE CALENDAR_DATE=CAST(SUBSTR('$TX_MONTH',1,4)||'1231' AS DATE FORMAT 'YYYYMMDD')";
+#   my $sth = $dbh->prepare($sqlText);
+#   $sth->execute();
+#   $YEARDAYNUM=$sth->fetchrow();
+#   $sth->finish();
+#
+   #取当月天数的方法
+   my $sqlText ="select substr('$MONTH_LASTDAY',7,2) from dual";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONDAYNUM=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONDAYNUM    \n";            }###            }###
+
+   DBDisconnect($dbh);	#Disconnect DB
+
+   # Call bteq command to load data
+   $ret = run_bteq_command();
+   return $ret;
+}
+
+################################################################
+# program section
+
+# To see if there is one parameter,
+# if there is no parameter, exit program
+if ( $#ARGV < 0 ) {
+   exit(1);
+}
+
+# Get the first argument
+$CONTROL_FILE = $ARGV[0];
+
+$TX_DATE = substr(${CONTROL_FILE},length(${CONTROL_FILE})-8, 8);
+if ( substr(${CONTROL_FILE}, length(${CONTROL_FILE})-3, 3) == 'dir' ) {
+    $TX_DATE = substr(${CONTROL_FILE},length(${CONTROL_FILE})-12, 8);
+};
+print "TX_DATE is $TX_DATE\n";
+print "CONTROL_FILE is $CONTROL_FILE\n";
+
+#get provId,to decide what source table or target table is
+$PROV = substr($CONTROL_FILE,(index($CONTROL_FILE,'_')+2),3);
+print "provId is $PROV\n";
+
+open(STDERR, ">&STDOUT");
+my $ret = main();
+if($ret eq 1){
+    $ret = 0;
+}else{
+    $ret = 1;
+}
+exit($ret);

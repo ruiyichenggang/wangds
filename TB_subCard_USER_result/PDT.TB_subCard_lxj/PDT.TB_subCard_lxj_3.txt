@@ -1,0 +1,610 @@
+#!/usr/bin/perl
+######################################################################
+# BTEQ script in Perl, generate by Script Wizard
+# Date Time          	: 2016-10-11 14:16:35
+# Target Table    		: PDATA.TB_PDT_XYX_CESHI
+# Script File         	: tb_pdt_xyx_ceshi0500.pl
+# Interface Name   		: 测试上线作业
+# Refresh Frequency		: MONTHLY
+# Refresh Mode     		: 
+# Authors          		: 
+# Version Info     		: 1.0
+# Source Table     		: 
+# Remark		   		: 
+######################################################################
+use strict; # Declare using Perl strict syntax
+use DBI; #Declare using Perl DBI syntax
+######################################################################
+# Variable Section
+my $AUTO_HOME = $ENV{"AUTO_HOME"};
+my $AUTO_DATA = "${AUTO_HOME}/DATA";
+my $AUTO_LOG  = "${AUTO_HOME}/LOG";
+my $AUTO_DSN  = $ENV{"AUTO_DSN"};
+my $CDEDB     = $ENV{"AUTO_DSCDEDB"};
+my $CDRDB     = $ENV{"AUTO_DSCDRDB"};
+my $TEMPDB    = $ENV{"AUTO_DSTEMPDB"};
+my $PVIEWDB   = $ENV{"AUTO_DSPVIEWDB"};
+my $PDATADB   = $ENV{"AUTO_DSPDATADB"};
+my $PMIDDB    = $ENV{"AUTO_DSMIDDB"};
+my $PAPPDB    = $ENV{"AUTO_DSPAPPDB"};
+my $SDATADB   = $ENV{"AUTO_DSSDATADB"};
+
+my $MAXDATE = $ENV{"AUTO_MAXDATE2"};
+if ( !defined($MAXDATE) ) {
+   $MAXDATE = "2999-12-31";
+}
+my $NULLDATE = $ENV{"AUTO_NULLDATE2"};
+if ( !defined($NULLDATE) ) {
+    $NULLDATE = "0001-01-01";
+}
+my $ILLDATE = $ENV{"AUTO_ILLDATE2"};
+if ( !defined($ILLDATE) ) {
+    $ILLDATE = "0001-01-01";
+}
+
+my $LOGON_STR;
+my $LOGON_FILE = "${AUTO_HOME}/etc/LOGON_ETL";
+my $CONTROL_FILE = "";
+
+
+my $dbh="";
+my $row="";
+my $PROV="";
+
+###当年天数   当月天数
+my $YEARDAYNUM="";
+my $MONDAYNUM="";
+
+my $TX_DATE = "";      #交易日 格式YYYYMMDD
+
+##当天，本月业务日期,本月第1天,本月最后1天  格式'YYYYMMDD'
+my $DATE_TODAY="";
+my $MONTH_TODAY="";
+my $MONTH_FIRSTDAY="";
+my $MONTH_LASTDAY="";
+
+###本月标示  格式'YYYYMM'
+my $TX_MONTH = "";
+
+
+###上月第1天,上月最后1天,上月当天 格式'YYYYMMDD'
+my $LAST1MONTH_FIRSTDAY="";
+my $LAST1MONTH_LASTDAY="";
+my $LAST1MONTH_TODAY="";
+
+#本年第一天 格式'YYYYMMDD'
+my $THIS_YEAR_FIRSTDAY="";
+
+#上年第一天,上年当天,上年最后一天 格式'YYYYMMDD'
+my $LASTYEAR_TODAY="";
+my $LASTYEAR_FIRSTDAY="";
+my $LASTYEAR_LASTDAY="";
+
+###下月第1天,下月最后1天,下月当天 格式'YYYYMMDD'
+my $NEXT1MONTH_FIRSTDAY="";
+my $NEXT1MONTH_LASTTDAY="";
+my $NEXT1MONTH_TODAY="";
+
+###下2月第1天,下月最后1天,下月当天 格式'YYYYMMDD'
+my $NEXT2MONTH_FIRSTDAY="";
+my $NEXT2MONTH_LASTTDAY="";
+my $NEXT2MONTH_TODAY="";
+
+
+###下1月到下3月 格式'YYYYMM'
+my $NEXT1MONTH_CHAR="";
+my $NEXT2MONTH_CHAR="";
+my $NEXT3MONTH_CHAR="";
+
+###上1月到上5月 格式'YYYYMM'
+my $LAST1MONTH_CHAR="";
+my $LAST2MONTH_CHAR="";
+my $LAST3MONTH_CHAR="";
+my $LAST4MONTH_CHAR="";
+my $LAST5MONTH_CHAR="";
+
+###本年1月到上12月 格式'YYYYMM'
+my $THIS_YEAR_MON1 = "";
+
+
+###上年1月到上12月 格式'YYYYMM'
+my $LASTYEAR_1MONTH="";
+my $LASTYEAR_12MONTH="";
+
+###上1天到上6天 格式'YYYYMMDD'
+my $DATE_TODAY_L1="";
+my $DATE_TODAY_L2="";
+my $DATE_TODAY_L3="";
+my $DATE_TODAY_L4="";
+my $DATE_TODAY_L5="";
+my $DATE_TODAY_L6="";
+
+
+###当前日期是否是星期日 1:是
+my $ISSUNDAY_FLAG = "";
+
+######################################################################
+# BTEQ function
+sub run_bteq_command
+{
+   my $rc = open(BTEQ, "| bteq");
+   # To see if bteq command invoke ok?
+   unless ($rc) {
+      print "Could not invoke BTEQ command\n";
+      return -1;
+   }	
+   ### Below are BTEQ scripts ###
+   print BTEQ <<ENDOFINPUT;
+   ${LOGON_STR}
+   .set width 300;
+
+--========================================================================================
+
+delete from PDATA.tb_subCard_lxj_PRI   where CAL_MONTH  = '$TX_MONTH' 
+;
+
+insert into PDATA.tb_subCard_LXJ_PRI   
+select T3.op_time,T1.*
+from SDATA.tb_subCard_LXJ$TX_DATE T1
+left join edw_share.s_td_user_360_$TX_MONTH t3
+on t3.op_time = '$TX_MONTH' and t3.user_id = t1.subs_id
+;
+
+
+
+
+delete from PDATA.tb_subCard_lxj   where CAL_MONTH  = '$TX_MONTH' 
+;
+
+
+insert into  PDATA.tb_subCard_lxj  
+select 
+ t3.op_time
+,t1.SUBS_ID
+,t3.ACC_NBR
+,t1.prob_1 
+from SDATA.tb_subCard_lxj$TX_DATE t1
+left join edw_share.s_td_user_360_$TX_MONTH t3
+on t3.op_time = '$TX_MONTH' and t3.user_id = t1.subs_id
+left join  ${db_name}.s_td_user_360_d t4  --360日表
+on t4.cal_day =(sel max(cal_day)
+from (
+select distinct cal_day
+from ${db_name}.s_td_user_360_d
+where cal_day between  $NEXT2MONTH_FIRSTDAY and $NEXT2MONTH_LASTTDAY)t ) and t4.subs_id = t1.subs_id 
+where t4.subs_state =1			                                       --筛选条件1.1：在用（日表）
+and (t3.NO_URGE_FLAG is null and t3.FREE_FLAG not in(1,2)  and t3.ACC_NBR  not like'%*%' )--筛选条件1.2：剔除免催停、公免测试、重保（即号码里带*）的用户
+and (T3.G4_YICHANG_ESN_FLAG <>1 and  T3.G4_YICHANG_SERV_FLAG <>1)      --筛选条件1.3：剔除机卡异常
+and t3.ACTIVE_FLAG = 1                                             --筛选条件1.4：当月活跃用户 
+;
+
+
+-----------------------------中间表删除-------------------------------
+--DROP TABLE PDATA.TEMP_YUANXM_BXL_LLBUSER_0510;
+--DROP TABLE	PDATA.TEMP_YUANXM_BXL_DGUSER_0510;
+--DROP TABLE	PDATA.TEMP_YUANXM_BXL_DGUSER2_0614;
+--drop table PDATA.TEMP_YUANXM_BXL_AVGFLOW_0510;
+--DROP TABLE PDATA.TEMP_YUANXM_BXL_BASEUSER_0510;
+--drop table PDATA.TEMP_YUANXM_BXL_DPI_0510;
+--drop table PDATA.TEMP_YUANXM_BXL_DPIKW_0510;
+--drop table PDATA.TEMP_YUANXM_BXL_DPIKW2_0510;
+--drop table 	PDATA.TEMP_YUANXM_BXL_CHGTERMPGE_0510;
+--drop table 	PDATA.TEMP_YUANXM_BXL_ZFK_0510;
+--drop table 	PDATA.TEMP_YUANXM_BXL_TERMPRICE_0510;
+--drop table pdata.temp_zude_bxl_llbflag ;
+--drop table PDATA.DSE_BXL_MODEL_INZ_201803 ;--主套餐输入表
+--drop table PDATA.DSE_BXL_MODEL_INB_201803 ;--流量包输入表
+--drop table PDATA.DRT_BXL_MODEL_RESZ_201804; --主套餐预测结果月表
+--drop table PDATA.DRT_BXL_MODEL_RESB_201804; --流量包预测结果月表
+
+drop table SDATA.tb_subCard_lxj$TX_DATE;
+--========================================================================================
+
+   .LOGOFF;
+   .QUIT 0;
+
+ENDOFINPUT
+
+   ### End of BTEQ scripts ###
+   close(BTEQ);
+
+   my $RET_CODE = $? >> 8;
+
+   # if the return code is not 0, that means something error happen
+   # so we return 1, otherwise, we return 0 means ok
+
+   if ( $RET_CODE == 12 ) {
+      return 1;
+   }
+   else {
+      return 0;
+   }
+}
+
+
+######################################################################
+# Connect to DB by odbc method
+######################################################################
+sub DBconnect()
+{
+    my $connectString;
+    my $DSOURCE = ${AUTO_DSN};
+    my $OS   = $^O;
+    $OS =~ tr [A-Z][a-z];
+    if ( $OS eq "mswin32" || $OS eq "aix" || $OS eq "hpux" || $OS eq "linux") {
+        $connectString = "dbi:ODBC:${DSOURCE}";
+    }else{
+        $connectString = "dbi:Teradata:${DSOURCE}";
+
+    }
+
+    open(LOGONFILE_H, "${LOGON_FILE}");
+    my $LOGON_STR = <LOGONFILE_H>;
+    close(LOGONFILE_H);
+    $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+    my ($logoncmd, $userpw) = split(' ',$LOGON_STR);
+    chop($userpw);
+    my ($USER, $PASSWD) = split(',' , $userpw);
+    print "\$connectString is $connectString\n";
+    my $dbh = DBI->connect($connectString, $USER, $PASSWD);
+    return $dbh;
+}
+
+
+sub DBDisconnect
+{
+   my ($dbh) = @_;
+
+    if(defined($dbh)){
+        $dbh->disconnect();
+        print "数据库成功连接\n";
+    }else{
+        print "断开数据库连接：数据库连接为空\n";
+    }
+}
+
+# main function
+###########################################################################
+sub main
+{
+   my $ret;
+   open(LOGONFILE_H, "${LOGON_FILE}");
+   $LOGON_STR = <LOGONFILE_H>;
+   close(LOGONFILE_H);
+
+   # Get the decoded logon string
+   $LOGON_STR = `${AUTO_HOME}/bin/IceCode.exe "$LOGON_STR"`;
+
+   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time());
+   $year += 1900;
+   $mon = sprintf("%02d", $mon + 1);
+   $mday = sprintf("%02d", $mday);
+   my $today = "${year}${mon}${mday}";
+
+   ####the date process function
+   $dbh=DBconnect();	#Connect DB
+
+   #取当前的天，日+1，月数-1
+   my $sqlText ="SELECT CAST('$TX_DATE' AS DATE FORMAT 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY=$sth->fetchrow();
+   $sth->finish();
+   $THIS_YEAR_MON1=substr($DATE_TODAY,0,4)."01";
+   $THIS_YEAR_FIRSTDAY=substr($DATE_TODAY,0,4)."0101";
+   print "DATE_TODAY is $DATE_TODAY\n";
+
+   #取头一天
+   my $sqlText ="select (cast('$DATE_TODAY' as date format 'YYYYMMDD')-1)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L1=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L1    \n";
+
+   #取头二天
+   my $sqlText ="select (cast('$DATE_TODAY' as date format 'YYYYMMDD')-2)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L2=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L2    \n";
+
+   #取头三天
+   my $sqlText ="select (cast('$DATE_TODAY' as date format 'YYYYMMDD')-3)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L3=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L3    \n";
+
+   #取头四天
+   my $sqlText ="select (cast('$DATE_TODAY' as date format 'YYYYMMDD')-4)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L4=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L4    \n";
+
+   #取头五天
+   my $sqlText ="select (cast('$DATE_TODAY' as date format 'YYYYMMDD')-5)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L5=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L5    \n";
+
+   #取头六天
+   my $sqlText ="select (cast('$DATE_TODAY' as date format 'YYYYMMDD')-6)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $DATE_TODAY_L6=$sth->fetchrow();
+   $sth->finish();
+   #print "$DATE_TODAY_L6    \n";
+
+   #取本月的第一天
+   my $sqlText ="select substring('$DATE_TODAY',1,6)||'01'";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONTH_FIRSTDAY    \n";
+ 
+   #取本月的最后一天
+   my $sqlText ="select cast((add_months(cast(substring('$DATE_TODAY',1,6)||'01' as date format 'YYYYMMDD'),1) - 1) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_LASTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONTH_LASTDAY    \n";
+ 
+   #取本月的char的标识方法
+   my $sqlText ="select substring('$DATE_TODAY',1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $TX_MONTH=$sth->fetchrow();
+   $sth->finish();
+   #print "$TX_MONTH    \n";
+
+   #取当月本天
+   my $sqlText ="select cast(add_months(cast('$DATE_TODAY' as date format 'YYYYMMDD'),-1) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "MONTH_TODAY    \n";
+
+ #  #取当月的第一天
+ #  my $sqlText ="select substring('$MONTH_TODAY',1,6)||'01'";
+ #  my $sth = $dbh->prepare($sqlText);
+ #  $sth->execute();
+ #  $MONTH_FIRSTDAY=$sth->fetchrow();
+ #  $sth->finish();
+ #  #print "MONTH_FIRSTDAY    \n";
+ #
+ #  #取当月的最后一天
+ #  my $sqlText ="select cast((add_months(cast(substring('$MONTH_TODAY',1,6)||'01' as date format 'YYYYMMDD'),1) - 1) as date)(format 'YYYYMMDD')(char(8))";
+ #  my $sth = $dbh->prepare($sqlText);
+ #  $sth->execute();
+ #  $MONTH_LASTDAY=$sth->fetchrow();
+ #  $sth->finish();
+ #  #print "MONTH_LASTDAY    \n";
+ #
+ #  #取当月的char的标识方法
+ #  my $sqlText ="select substring('$MONTH_TODAY',1,6)";
+ #  my $sth = $dbh->prepare($sqlText);
+ #  $sth->execute();
+ #  $TX_MONTH=$sth->fetchrow();
+ #  $sth->finish();
+ #  #print "MONTH_CHAR    \n";
+
+   #取上月的本天
+   my $sqlText ="select cast(add_months(cast('$DATE_TODAY' as date format 'YYYYMMDD'),-2) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_TODAY    \n";
+
+   #取上月的第一天
+   my $sqlText ="select substring('$LAST1MONTH_TODAY',1,6)||'01'";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_FIRSTDAY    \n";
+
+   #取上月的最后一天
+   my $sqlText ="select cast((add_months(cast(substring('$LAST1MONTH_TODAY',1,6)||'01' as date format 'YYYYMMDD'),1) - 1) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_LASTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_LASTDAY    \n";
+
+   #取上月的char的标识方法
+   my $sqlText ="select substring((ADD_MONTHS(CAST('$MONTH_TODAY' AS DATE FORMAT 'YYYYMMDD'),-1)(FORMAT 'YYYYMMDD')),1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST1MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST1MONTH_CHAR    \n";
+
+   #取上2月的char的标识方法
+   my $sqlText ="select substring((ADD_MONTHS(CAST('$LAST1MONTH_TODAY' AS DATE FORMAT 'YYYYMMDD'),-1)(FORMAT 'YYYYMMDD')),1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST2MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST2MONTH_CHAR    \n";
+
+   #取上3月的char的标识方法
+   my $sqlText ="select substring((ADD_MONTHS(CAST('$LAST1MONTH_TODAY' AS DATE FORMAT 'YYYYMMDD'),-2)(FORMAT 'YYYYMMDD')),1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST3MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+
+   #取上4月的char的标识方法
+   my $sqlText ="select substring((ADD_MONTHS(CAST('$LAST1MONTH_TODAY' AS DATE FORMAT 'YYYYMMDD'),-3)(FORMAT 'YYYYMMDD')),1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST4MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST4MONTH_CHAR    \n";
+
+   #取上5月的char的标识方法
+   my $sqlText ="select substring((ADD_MONTHS(CAST('$LAST1MONTH_TODAY' AS DATE FORMAT 'YYYYMMDD'),-4)(FORMAT 'YYYYMMDD')),1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LAST5MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$LAST5MONTH_CHAR    \n";
+
+   #取下月的本天
+   my $sqlText ="select cast(add_months(cast('$MONTH_TODAY' as date format 'YYYYMMDD'),1) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_TODAY    \n";
+
+   #取下月的第一天
+   my $sqlText ="select substring('$NEXT1MONTH_TODAY',1,6)||'01'";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_FIRSTDAY    \n";
+
+   #取下2月的本天@20180704 by zd
+   my $sqlText ="select cast(add_months(cast('$NEXT1MONTH_TODAY' as date format 'YYYYMMDD'),1) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT2MONTH_TODAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT2MONTH_TODAY    \n";
+   
+   #取下2月的第一天@20180702 by zd
+   my $sqlText ="select cast(add_months(cast('$NEXT1MONTH_FIRSTDAY' as date format 'YYYYMMDD'),1) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT2MONTH_FIRSTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT2MONTH_FIRSTDAY    \n";
+   
+   #取下月的最后一天
+   my $sqlText ="select cast((add_months(cast(substring('$NEXT1MONTH_TODAY',1,6)||'01' as date format 'YYYYMMDD'),1) - 1) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_LASTTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_LASTTDAY    \n";
+
+   #取下2月的最后一天@20180704 by zd
+   my $sqlText ="select cast((add_months(cast(substring('$NEXT2MONTH_TODAY',1,6)||'01' as date format 'YYYYMMDD'),1) - 1) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT2MONTH_LASTTDAY=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT2MONTH_LASTTDAY    \n";
+   
+   #取下月的char的标识方法
+   my $sqlText ="select substring('$NEXT1MONTH_TODAY',1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT1MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT1MONTH_CHAR    \n";
+
+   #取下2月的char的标识方法
+   my $sqlText ="select substring((ADD_MONTHS(CAST('$NEXT1MONTH_TODAY' AS DATE FORMAT 'YYYYMMDD'),1)(FORMAT 'YYYYMMDD')),1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT2MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT2MONTH_CHAR    \n";
+
+   #取下3月的char的标识方法
+   my $sqlText ="select substring((ADD_MONTHS(CAST('$NEXT1MONTH_TODAY' AS DATE FORMAT 'YYYYMMDD'),2)(FORMAT 'YYYYMMDD')),1,6)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $NEXT3MONTH_CHAR=$sth->fetchrow();
+   $sth->finish();
+   #print "$NEXT3MONTH_CHAR    \n";
+
+   #取当年天数的方法
+   my $sqlText ="SELECT DAY_OF_YEAR FROM SYS_CALENDAR.CALENDAR WHERE CALENDAR_DATE=CAST(SUBSTR('$TX_MONTH',1,4)||'1231' AS DATE FORMAT 'YYYYMMDD')";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $YEARDAYNUM=$sth->fetchrow();
+   $sth->finish();
+
+   #取当月天数的方法
+   my $sqlText ="select substring('$MONTH_LASTDAY',7,2)";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $MONDAYNUM=$sth->fetchrow();
+   $sth->finish();
+   #print "$MONDAYNUM    \n";
+
+   #取上年的本天
+   my $sqlText ="select cast(add_months(cast('$DATE_TODAY' as date format 'YYYYMMDD'),-12) as date)(format 'YYYYMMDD')(char(8))";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $LASTYEAR_TODAY=$sth->fetchrow();
+   $sth->finish();
+   $LASTYEAR_FIRSTDAY=substr($LASTYEAR_TODAY,0,4)."0101" ;
+   $LASTYEAR_LASTDAY =substr($LASTYEAR_TODAY,0,4)."1231" ;
+   $LASTYEAR_1MONTH  =substr($LASTYEAR_TODAY,0,4)."01";
+   $LASTYEAR_12MONTH =substr($LASTYEAR_TODAY,0,4)."12";
+
+
+   #取今天是否星期日
+   my $sqlText ="select a.day_of_week from sys_calendar.calendar a where a.calendar_date = cast('$DATE_TODAY' as date format 'YYYYMMDD')";
+   my $sth = $dbh->prepare($sqlText);
+   $sth->execute();
+   $ISSUNDAY_FLAG=$sth->fetchrow();
+   $sth->finish();
+   if($ISSUNDAY_FLAG != 1)
+   {
+      $ISSUNDAY_FLAG = "";
+   }
+
+
+   DBDisconnect($dbh);	#Disconnect DB
+
+
+
+   # Call bteq command to load data
+   $ret = run_bteq_command();
+   return $ret;
+}
+
+######################################################################
+# program section
+
+# To see if there is one parameter,
+# if there is no parameter, exit program
+if ( $#ARGV < 0 ) {
+   exit(1);
+}
+
+# Get the first argument
+$CONTROL_FILE = $ARGV[0];
+
+$TX_DATE = substr(${CONTROL_FILE},length(${CONTROL_FILE})-8, 8);
+if ( substr(${CONTROL_FILE}, length(${CONTROL_FILE})-3, 3) == 'dir' ) {
+    $TX_DATE = substr(${CONTROL_FILE},length(${CONTROL_FILE})-12, 8);
+};
+print "TX_DATE is $TX_DATE\n";
+print "CONTROL_FILE is $CONTROL_FILE\n";
+
+#get provId,to decide what source table or target table is
+$PROV = substr($CONTROL_FILE,(index($CONTROL_FILE,'_')+2),3);
+print "provId is $PROV\n";
+
+open(STDERR, ">&STDOUT");
+my $ret = main();
+
+exit($ret);
